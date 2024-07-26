@@ -5,11 +5,12 @@ import numpy as np
 
 
 class VirtualSensors:
-    def __init__(self, datapath: str,
-                       resolution: int = 1024,
-                       roll_cfg: str = "roll_0",
-                       lin_drift: float = 0.,
-                       ang_drift: float = 0.):
+    def __init__(self,
+                 datapath: str,
+                 resolution: int = 1024,
+                 roll_cfg: str = "roll_0",
+                 lin_drift: float = 0.,
+                 ang_drift: float = 0.):
         
         # Attributes
         self.datapath = datapath
