@@ -176,4 +176,3 @@ if __name__ == "__main__":
 
     # Display
     print(coords.shape, emb_coords.shape)
-    print(mask)
