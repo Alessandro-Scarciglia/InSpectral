@@ -137,3 +137,19 @@ class NeRFSmall(nn.Module):
         outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
 
         return outputs
+    
+
+# Usage Test
+if __name__ == "__main__":
+    
+    # Instantiate the model object
+    model = NeRFSmall()
+
+    # Define adummy input
+    dummy_input = torch.tensor([[1., 2., 3., 4., 5., 6.],
+                               [1., 2., 3., 4., 5., 6.]])
+
+    # Try inference and test input/output dimension
+    out = model(dummy_input)
+    print(dummy_input.shape, out.shape)
+    
