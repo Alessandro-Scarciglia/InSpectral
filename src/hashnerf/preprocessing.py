@@ -6,14 +6,35 @@ import numpy as np
 
 class RaysGenerator(nn.Module):
     def __init__(self,
-                 K: torch.Tensor):
+                 H: int,
+                 W: int,
+                 CH: int,
+                 K: torch.Tensor,
+                 mode: str = "training"):
+        super(RaysGenerator, self).__init__()
         
         # Attributes
         self.K = K
+        self.H = H
+        self.CH = CH
+        self.W = W
+        self.mode = mode
+    
 
+    def training_mode(self):
+        self.mode = "training"
+    
+
+    def rendering_mode(self):
+        self.mode = "rendering"
+
+
+    def mode(self):
+        return self.mode
+
+
+    @torch.no_grad
     def get_rays(self,
-                 H: int,
-                 W: int,
                  c2w: torch.Tensor):
         '''
         This function generates HxW rays which start from the camera
@@ -22,9 +43,10 @@ class RaysGenerator(nn.Module):
         '''
 
         # Generate the meshgrid of all pixels on the image plane
-        i_span = torch.linspace(0, W-1, W)
-        j_span = torch.linspacve(0, H-1, H)
-        i, j = torch.meshgrid(i_span, j_span).t()
+        i_span = torch.linspace(0, self.W - 1, self.W)
+        j_span = torch.linspace(0, self.H - 1, self.H)
+        it, jt = torch.meshgrid(i_span, j_span)
+        i, j = it.t(), jt.t()
 
         # Compute directions
         # TODO: check camera frame consistency
@@ -40,3 +62,46 @@ class RaysGenerator(nn.Module):
         rays_o = c2w[:3, -1].expand(rays_d.shape)
 
         return rays_o, rays_d
+    
+
+    @torch.no_grad
+    def forward(self,
+                frame: torch.Tensor,
+                c2w: torch.Tensor):
+        '''
+        The forward function returns both true color channels and rays when in "train" mode.
+        Viceversa, it returns only rays when in inference-only mode.
+        '''
+
+        # Compute rays 
+        rays_o, rays_d = self.get_rays(c2w)
+
+        # If the the mode is 'training', returns rays (input) and color channels (labels)
+        if self.mode == "training":
+            out = torch.concatenate([rays_o, rays_d, frame], dim=-1).reshape(-1, 6 + self.CH)
+
+        # Otherwise, return rays only (input)
+        else:
+            out = torch.concatenate([rays_o, rays_d], dim=-1).reshape(-1, 6)
+
+        return out
+
+
+
+# Run for usage example
+if __name__ == "__main__":
+
+    # Generate random inputs
+    H, W, CH = 5, 5, 6
+    K = torch.rand((3, 3))
+    c2w = torch.rand((4, 4))
+    frame = torch.rand((H, W, CH))
+
+    # Istantiate the model object
+    prep = RaysGenerator(H=H, W=W, CH=CH, K=K)
+    prep.rendering_mode()
+    prep.training_mode()
+    output = prep(frame, c2w)
+
+    # Show
+    print(output.shape)
