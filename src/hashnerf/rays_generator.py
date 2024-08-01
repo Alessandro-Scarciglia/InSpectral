@@ -33,7 +33,6 @@ class RaysGenerator(nn.Module):
         return self.mode
 
 
-    @torch.no_grad
     def get_rays(self,
                  c2w: torch.Tensor):
         '''
@@ -64,10 +63,9 @@ class RaysGenerator(nn.Module):
         return rays_o, rays_d
     
 
-    @torch.no_grad
     def forward(self,
-                frame: torch.Tensor,
-                c2w: torch.Tensor):
+                c2w: torch.Tensor,
+                frame: torch.Tensor):
         '''
         The forward function returns both true color channels and rays when in "train" mode.
         Viceversa, it returns only rays when in inference-only mode.
@@ -101,7 +99,7 @@ if __name__ == "__main__":
     prep = RaysGenerator(H=H, W=W, CH=CH, K=K)
     prep.rendering_mode()
     prep.training_mode()
-    output = prep(frame, c2w)
+    output = prep(c2w, frame)
 
     # Show
     print(output.shape)

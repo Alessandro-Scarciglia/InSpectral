@@ -15,6 +15,7 @@ class Sampler(nn.Module):
         self.near = near
         self.far = far
 
+
     def forward(self,
                 rays_o: torch.Tensor,
                 rays_d: torch.Tensor):
