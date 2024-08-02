@@ -3,9 +3,11 @@ import torch
 import torch.nn as nn
 
 # Import custom modules
+from parameters import RenderingParameters
 from rays_generator import RaysGenerator
 from sampler import Sampler
 from embedder import HashEmbedder
+from sh_encoder import SHEncoder
 from small_nerf import NeRFSmall
 from integrator import *
 
@@ -15,9 +17,10 @@ class NeuralRenderer(nn.Module):
                  H: int, W: int, CH: int, K: int,
                  n_ray_samples: int, near: float, far: float,
                  bbox: tuple, n_levels: int, n_features_per_level: int, log2_hashmap_size: int, low_res: int, high_res: int, device: str,
+                 input_dim: int, degree: int, out_dim: int,
                  n_layers: int, hidden_dim: int, geo_feat_dim: int, n_layers_color: int, hidden_dim_color: int, input_ch: int, input_ch_views: int, out_ch: int):
-        super(NeuralRenderer).__init__()
-
+        super(NeuralRenderer, self).__init__()
+        
         # Generates rays origins and directions 
         self.rays_generator = RaysGenerator(H=H,
                                             W=W,
@@ -38,6 +41,11 @@ class NeuralRenderer(nn.Module):
                                      low_resolution=low_res,
                                      high_resolution=high_res,
                                      device=device)
+        
+        # Generate encoding for view directions
+        self.sh_encoder = SHEncoder(input_dim=input_dim,
+                                    degree=degree,
+                                    out_dim=out_dim)
         
         # Infer the density and channel values for each sample along a ray
         self.nerf = NeRFSmall(n_layers=n_layers,
@@ -69,21 +77,48 @@ class NeuralRenderer(nn.Module):
             # both rays (origins, directions) and the corresponding true channel values (RGB+). Vice versa.
             # when it is employed in rendering mode, only rays are provided.
             if frame.shape[0] == 0:
-                self.rays_generator.rendering_mode()
                 rays = self.rays_generator(c2w)
-                rays_o, rays_d = rays[..., :3], rays[..., 3:]
                 labels = torch.tensor([])
             else:
-                self.rays_generator.training_mode()
                 rays_and_labels = self.rays_generator(c2w, frame)
-                rays_o, rays_d = rays_and_labels[..., :3], rays_and_labels[..., 3:6]
+                rays = rays_and_labels[..., :6]
                 labels = rays_and_labels[..., 6:]
 
             # Produce samples along each ray produced from camera
-            samples = self.sampler(rays_o, rays_d)
+            samples = self.sampler(rays[..., :3], rays[..., 3:6])
 
-        # Infere sigmas and channel values for each sample
-        out = self.nerf(samples)
+            # Concatenate points with view direction and kill one dimension
+            viewdirs = rays[..., 3:6].unsqueeze(1)
+            viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
+            rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
+            rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
+
+        # Hash-encode the samples coordinates and SH-encode the view directions
+        enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
+        enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
+
+        # Concatenate as a whole input vector and compute a forward pass with NeRF
+        input_vector = torch.cat([enc_points, enc_dirs], dim=-1)
+        output = self.nerf(input_vector)
+        print(output.shape)
+
         
 
         
+
+        
+# Usage example
+if __name__ == "__main__":
+
+    # Import parameters
+    params_obj = RenderingParameters()
+    params = params_obj.get_all_params()
+
+    # Instantiate the model object
+    renderer = NeuralRenderer(**params)
+
+    # Generate dummy inputs
+    dummy_c2w = torch.rand((4, 4), dtype=torch.float32)
+
+    # Infere
+    renderer(dummy_c2w)
