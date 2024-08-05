@@ -7,8 +7,8 @@ class RenderingParameters:
 
         # Parameters
         self.parameters = {
-            "H": 100,
-            "W": 100,
+            "H": 32,
+            "W": 32,
             "CH": 3,
             "K": torch.rand(3, 3),
 

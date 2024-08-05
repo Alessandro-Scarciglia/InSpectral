@@ -44,7 +44,7 @@ class Sampler(nn.Module):
         # Define 3D points along each ray
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
-        return pts
+        return pts, zvals
 
 
 

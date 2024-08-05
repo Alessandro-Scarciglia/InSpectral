@@ -9,7 +9,7 @@ from sampler import Sampler
 from embedder import HashEmbedder
 from sh_encoder import SHEncoder
 from small_nerf import NeRFSmall
-from integrator import *
+from integrator import Integrator
 
 
 class NeuralRenderer(nn.Module):
@@ -59,11 +59,7 @@ class NeuralRenderer(nn.Module):
         
         # Integrates all densities and channels values along a ray to get the 
         # overall properties of a single pixel.
-        self.integrator = None
-
-
-        # Reorder the output of each single inference in order to render the whole frame
-        self.collector = None
+        self.integrator = Integrator()
 
 
     def forward(self,
@@ -85,7 +81,7 @@ class NeuralRenderer(nn.Module):
                 labels = rays_and_labels[..., 6:]
 
             # Produce samples along each ray produced from camera
-            samples = self.sampler(rays[..., :3], rays[..., 3:6])
+            samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
 
             # Concatenate points with view direction and kill one dimension
             viewdirs = rays[..., 3:6].unsqueeze(1)
@@ -100,14 +96,20 @@ class NeuralRenderer(nn.Module):
         # Concatenate as a whole input vector and compute a forward pass with NeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1)
         output = self.nerf(input_vector)
-        print(output.shape)
 
+        # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
+        # and reshape as [points, samples, channels]
+        output[~keep_mask, -1] = 0
+        output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
         
+        # Integrate densities and channels values estimate along each ray
+        chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
 
-        
+        return chs_map, depth_map, sparsity_loss, labels
+         
 
-        
-# Usage example
+
+# Run for usage example
 if __name__ == "__main__":
 
     # Import parameters
@@ -120,5 +122,6 @@ if __name__ == "__main__":
     # Generate dummy inputs
     dummy_c2w = torch.rand((4, 4), dtype=torch.float32)
 
-    # Infere
-    renderer(dummy_c2w)
+    # Infer
+    frame, depth, sparsity, labels = renderer(dummy_c2w)
+    

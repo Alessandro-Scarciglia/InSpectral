@@ -4,6 +4,8 @@ import torch
 
 # Custom modules
 from virtual_sensors import VirtualSensors
+from hashnerf.parameters import RenderingParameters
+from hashnerf.rendering import NeuralRenderer
 
 
 class SatNode:
@@ -33,6 +35,9 @@ class SatNode:
         # Define the image size
         self.H = self.W = resolution
 
-        # Create NeRF model
+        # Create NeRF Renderer
+        renderer_args = RenderingParameters()
+        self.renderer = NeuralRenderer(**renderer_args.get_all_params())
+        self.renderer.to(device)
 
     
