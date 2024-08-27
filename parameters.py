@@ -9,7 +9,7 @@ class RenderingParameters:
         self.parameters = {
             "H": 32,
             "W": 32,
-            "CH": 3,
+            "CH": 4,
             "K": torch.rand(3, 3),
 
             "n_ray_samples": 64,

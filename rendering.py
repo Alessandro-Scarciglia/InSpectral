@@ -124,4 +124,4 @@ if __name__ == "__main__":
 
     # Infer
     frame, depth, sparsity, labels = renderer(dummy_c2w)
-    
+    print(frame.shape)

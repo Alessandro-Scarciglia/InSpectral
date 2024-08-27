@@ -1,1 +1,0 @@
-# TODO: start from line 846 of run_nerf.py

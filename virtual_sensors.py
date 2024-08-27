@@ -58,7 +58,7 @@ if __name__ == "__main__":
     
     # Instantiate the object
     vsens = VirtualSensors(datapath="data/transforms.json",
-                           roll_cfg="roll_120")
+                           roll_cfg="roll_240")
 
     # Set generator
     measurements = vsens.get_measurement()

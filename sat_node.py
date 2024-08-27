@@ -1,11 +1,13 @@
 # Modules import
 import json
 import torch
+import cv2
+import numpy as np
 
 # Custom modules
 from virtual_sensors import VirtualSensors
-from hashnerf.parameters import RenderingParameters
-from hashnerf.rendering import NeuralRenderer
+from parameters import RenderingParameters
+from rendering import NeuralRenderer
 
 
 class SatNode:
@@ -40,4 +42,32 @@ class SatNode:
         self.renderer = NeuralRenderer(**renderer_args.get_all_params())
         self.renderer.to(device)
 
+
+    def get_measurement(self):
+        return self.measurements
     
+
+    def render(self,
+               c2w: torch.Tensor,
+               frame: torch.Tensor = torch.tensor([])):
+        return self.renderer(c2w, frame)
+
+
+    
+# Run for usage
+if __name__ == "__main__":
+    sat1 = SatNode(roll_cfg="roll_120",
+                  datapath='data/transforms.json',
+                  calibration_path='calibration/calibration.json')
+    
+    sat2 = SatNode(roll_cfg="roll_0",
+                  datapath='data/transforms.json',
+                  calibration_path='calibration/calibration.json')
+    
+    # TODO: bug in dataset for roll240
+    for meas0, meas120 in zip(sat1.get_measurement(), sat2.get_measurement()):
+        frame1, _ = meas0
+        frame2, _ = meas120
+        cv2.imshow("", np.hstack([frame1, frame2]))
+        cv2.waitKey(10)
+        print()
