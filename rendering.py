@@ -62,23 +62,13 @@ class NeuralRenderer(nn.Module):
         self.integrator = Integrator()
 
 
-    def forward(self,
-                c2w: torch.Tensor,
-                frame: torch.Tensor = torch.tensor([])):
+    def forward(self, c2w: torch.Tensor):
 
         # Preprocessing steps are carried out without retaining the gradient
         with torch.no_grad():
 
-            # If a frame is given, the model is employed in training mode. In essence, it returns
-            # both rays (origins, directions) and the corresponding true channel values (RGB+). Vice versa.
-            # when it is employed in rendering mode, only rays are provided.
-            if frame.shape[0] == 0:
-                rays = self.rays_generator(c2w)
-                labels = torch.tensor([])
-            else:
-                rays_and_labels = self.rays_generator(c2w, frame)
-                rays = rays_and_labels[..., :6]
-                labels = rays_and_labels[..., 6:]
+            # Generate rays
+            rays = self.rays_generator(c2w)
 
             # Produce samples along each ray produced from camera
             samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
@@ -105,7 +95,7 @@ class NeuralRenderer(nn.Module):
         # Integrate densities and channels values estimate along each ray
         chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
 
-        return chs_map, depth_map, sparsity_loss, labels
+        return chs_map, depth_map, sparsity_loss
          
 
 
@@ -123,5 +113,5 @@ if __name__ == "__main__":
     dummy_c2w = torch.rand((4, 4), dtype=torch.float32)
 
     # Infer
-    frame, depth, sparsity, labels = renderer(dummy_c2w)
+    frame, depth, sparsity = renderer(dummy_c2w)
     print(frame.shape)

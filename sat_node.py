@@ -8,6 +8,7 @@ import numpy as np
 from virtual_sensors import VirtualSensors
 from parameters import RenderingParameters
 from rendering import NeuralRenderer
+from trainer import Trainer
 
 
 class SatNode:
@@ -42,6 +43,9 @@ class SatNode:
         self.renderer = NeuralRenderer(**renderer_args.get_all_params())
         self.renderer.to(device)
 
+        # Create Training routine
+        self.trainer = Trainer(self.renderer)
+
 
     def get_measurement(self):
         return self.measurements
@@ -59,15 +63,8 @@ if __name__ == "__main__":
     sat1 = SatNode(roll_cfg="roll_120",
                   datapath='data/transforms.json',
                   calibration_path='calibration/calibration.json')
-    
-    sat2 = SatNode(roll_cfg="roll_0",
-                  datapath='data/transforms.json',
-                  calibration_path='calibration/calibration.json')
-    
-    # TODO: bug in dataset for roll240
-    for meas0, meas120 in zip(sat1.get_measurement(), sat2.get_measurement()):
-        frame1, _ = meas0
-        frame2, _ = meas120
-        cv2.imshow("", np.hstack([frame1, frame2]))
-        cv2.waitKey(10)
-        print()
+
+    for i, (c2w, frame) in enumerate(sat1.get_measurement()):
+        c2w = torch.tensor(c2w)
+        frame = torch.tensor(frame)
+        sat1.trainer.train_one_frame(c2w=c2w, frame=frame, niter=i)

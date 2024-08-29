@@ -23,7 +23,7 @@ class VirtualSensors:
     def get_measurement(self):
         '''
         This function is meant to be a virtualization of both Camera and IMU.
-        This function reads a sample from a dataset and return a tuple (image, pose).
+        This function reads a sample from a dataset and returns a tuple (image, pose).
         - image: the virtualization of an RGB frame captured from a camera sensor.
         - pose: the pose c2w (4x4 homography) where the frame is taken.
 
