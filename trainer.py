@@ -17,6 +17,7 @@ class Trainer:
                  weight_decay: int = 0,
                  degenerated_to_sgd: bool = False,
                  tot_var_weight: float = 1e-6,
+                 sparse_loss_w: float = 1e-6,
                  tot_var_stop: int = 1000):
         
         # Attributes
@@ -28,6 +29,7 @@ class Trainer:
         self.degenerated_to_sgd = degenerated_to_sgd
         self.tot_var_w = tot_var_weight
         self.tot_var_stop = tot_var_stop
+        self.sparse_loss_w = sparse_loss_w
         self.params = RenderingParameters()
 
         # Lambdas
@@ -66,12 +68,12 @@ class Trainer:
                 self.model.embedder.embeddings[i], \
                 self.params.get_param("low_res"), self.params.get_param("high_res"), \
                 i, self.params.get_param("log2_hashmap_size"), \
-                self.params.get_all_params("n_levels")
-                ) for i in range(self.params.get_all_params("n_levels"))
+                self.params.get_param("n_levels")
+                ) for i in range(self.params.get_param("n_levels"))
         )
 
         # Compute combination of losses
-        loss = loss_on_colors  + sparsity_loss + self.to_var_w * tot_var_loss
+        loss = loss_on_colors + self.sparse_loss_w * sparsity_loss.sum() + self.tot_var_w * tot_var_loss
 
         # Reject the total variation after first N iterations
         if niter > self.tot_var_stop:
@@ -81,5 +83,4 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        print(loss.shape)
-        exit()
+        print(loss.item())

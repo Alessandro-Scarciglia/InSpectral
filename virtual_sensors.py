@@ -50,7 +50,7 @@ class VirtualSensors:
 
             # TODO: add optional drift
 
-            yield resized_frame, np.array(c2w)
+            yield np.array(c2w), resized_frame
 
 
 # Run for usage example

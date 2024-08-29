@@ -19,7 +19,7 @@ class SatNode:
                  resolution: int = 1024,
                  lin_drift: float = 0,
                  ang_drift: float = 0,
-                 device: str = "cuda:0"
+                 device: str = "cpu"
                  ):
 
         # Retrieve intrinsic calibration matrix K
@@ -65,6 +65,6 @@ if __name__ == "__main__":
                   calibration_path='calibration/calibration.json')
 
     for i, (c2w, frame) in enumerate(sat1.get_measurement()):
-        c2w = torch.tensor(c2w)
-        frame = torch.tensor(frame)
+        c2w = torch.tensor(c2w, dtype=torch.float32)
+        frame = torch.tensor(frame, dtype=torch.float32)
         sat1.trainer.train_one_frame(c2w=c2w, frame=frame, niter=i)
