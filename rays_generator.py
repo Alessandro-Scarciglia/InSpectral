@@ -76,7 +76,7 @@ class RaysGenerator(nn.Module):
 if __name__ == "__main__":
 
     # Generate random inputs
-    H, W, CH = 5, 5, 6
+    H, W, CH = 64, 64, 3
     K = torch.rand((3, 3))
     c2w = torch.rand((4, 4))
     frame = torch.rand((H, W, CH))
@@ -86,4 +86,4 @@ if __name__ == "__main__":
     output = prep(c2w, frame)
 
     # Show
-    print(output.shape)
+    print(output)

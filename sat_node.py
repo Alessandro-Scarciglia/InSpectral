@@ -2,11 +2,10 @@
 import json
 import torch
 import cv2
-import numpy as np
 
 # Custom modules
 from virtual_sensors import VirtualSensors
-from parameters import RenderingParameters
+from parameters import RenderingParameters, TrainingParameters
 from rendering import NeuralRenderer
 from trainer import Trainer
 
@@ -41,30 +40,42 @@ class SatNode:
         # Create NeRF Renderer
         renderer_args = RenderingParameters()
         self.renderer = NeuralRenderer(**renderer_args.get_all_params())
-        self.renderer.to(device)
 
         # Create Training routine
-        self.trainer = Trainer(self.renderer)
+        training_args = TrainingParameters()
+        self.trainer = Trainer(self.renderer, **training_args.get_all_params())
 
 
     def get_measurement(self):
         return self.measurements
     
 
-    def render(self,
-               c2w: torch.Tensor,
-               frame: torch.Tensor = torch.tensor([])):
-        return self.renderer(c2w, frame)
+    def render(self, c2w: torch.Tensor):
+        return self.renderer(c2w)
 
 
     
-# Run for usage
+# Run for test
 if __name__ == "__main__":
     sat1 = SatNode(roll_cfg="roll_120",
-                  datapath='data/transforms.json',
-                  calibration_path='calibration/calibration.json')
+                   resolution=64,
+                   datapath='data/transforms.json',
+                   calibration_path='calibration/calibration.json')
 
     for i, (c2w, frame) in enumerate(sat1.get_measurement()):
+        
+        # Convert to tensors
         c2w = torch.tensor(c2w, dtype=torch.float32)
         frame = torch.tensor(frame, dtype=torch.float32)
-        sat1.trainer.train_one_frame(c2w=c2w, frame=frame, niter=i)
+        
+        # Show every 10 samples
+        if i % 10 == 0:
+            with torch.no_grad():
+                test_chs_map, _, __, = sat1.render(c2w)
+                cv2.imshow("", test_chs_map.detach().numpy())
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+        
+        loss = sat1.trainer.train_one_frame(c2w=c2w, frame=frame, niter=i)
+        print(loss.item())

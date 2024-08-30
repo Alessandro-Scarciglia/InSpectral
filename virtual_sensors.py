@@ -58,7 +58,7 @@ if __name__ == "__main__":
     
     # Instantiate the object
     vsens = VirtualSensors(datapath="data/transforms.json",
-                           roll_cfg="roll_240")
+                           roll_cfg="roll_0")
 
     # Set generator
     measurements = vsens.get_measurement()
@@ -67,12 +67,13 @@ if __name__ == "__main__":
     for measurement in measurements:
         
         # Unpack
-        frame, pose = measurement
+        pose, frame = measurement
 
         # Visualize c2w matrix
         print(f"Camera to World Matrix:\n{pose}\n\n")
         
         # Visualize frame
+        print(frame.shape)
         cv2.imshow("", frame)
         cv2.waitKey(0)
     

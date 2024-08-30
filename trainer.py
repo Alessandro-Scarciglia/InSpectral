@@ -17,8 +17,10 @@ class Trainer:
                  weight_decay: int = 0,
                  degenerated_to_sgd: bool = False,
                  tot_var_weight: float = 1e-6,
-                 sparse_loss_w: float = 1e-6,
-                 tot_var_stop: int = 1000):
+                 sparsity_loss_weight: float = 1e-6,
+                 tot_var_stop: int = 1000,
+                 decay_rate: float = 1e-1,
+                 decay_steps: int = 1000):
         
         # Attributes
         self.model = model
@@ -29,7 +31,10 @@ class Trainer:
         self.degenerated_to_sgd = degenerated_to_sgd
         self.tot_var_w = tot_var_weight
         self.tot_var_stop = tot_var_stop
-        self.sparse_loss_w = sparse_loss_w
+        self.sparsity_loss_w = sparsity_loss_weight
+        self.decay_rate = decay_rate
+        self.global_steps = 0
+        self.decay_steps = decay_steps
         self.params = RenderingParameters()
 
         # Lambdas
@@ -73,7 +78,7 @@ class Trainer:
         )
 
         # Compute combination of losses
-        loss = loss_on_colors + self.sparse_loss_w * sparsity_loss.sum() + self.tot_var_w * tot_var_loss
+        loss = loss_on_colors + self.sparsity_loss_w * sparsity_loss.sum() + self.tot_var_w * tot_var_loss
 
         # Reject the total variation after first N iterations
         if niter > self.tot_var_stop:
@@ -83,4 +88,13 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        print(loss.item())
+        # Update learning rate
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = self.lr * (self.decay_rate ** (self.global_steps / self.decay_steps))
+
+        # Increase the global steps
+        self.global_steps += 1
+
+        return loss
+
+        

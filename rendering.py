@@ -16,7 +16,7 @@ class NeuralRenderer(nn.Module):
     def __init__(self,
                  H: int, W: int, CH: int, K: int,
                  n_ray_samples: int, near: float, far: float,
-                 bbox: tuple, n_levels: int, n_features_per_level: int, log2_hashmap_size: int, low_res: int, high_res: int, device: str,
+                 bbox: tuple, n_levels: int, n_features_per_level: int, log2_hashmap_size: int, low_res: int, high_res: int,
                  input_dim: int, degree: int, out_dim: int,
                  n_layers: int, hidden_dim: int, geo_feat_dim: int, n_layers_color: int, hidden_dim_color: int, input_ch: int, input_ch_views: int, out_ch: int):
         super(NeuralRenderer, self).__init__()
@@ -39,8 +39,7 @@ class NeuralRenderer(nn.Module):
                                      n_features_per_level=n_features_per_level,
                                      log2_hashmap_size=log2_hashmap_size,
                                      low_resolution=low_res,
-                                     high_resolution=high_res,
-                                     device=device)
+                                     high_resolution=high_res)
         
         # Generate encoding for view directions
         self.sh_encoder = SHEncoder(input_dim=input_dim,
@@ -85,6 +84,8 @@ class NeuralRenderer(nn.Module):
 
         # Concatenate as a whole input vector and compute a forward pass with NeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1)
+        print(enc_dirs.shape)
+
         output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
@@ -95,6 +96,14 @@ class NeuralRenderer(nn.Module):
         # Integrate densities and channels values estimate along each ray
         chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
 
+        # Resize frames
+        chs_map = chs_map.reshape((self.rays_generator.H,
+                                  self.rays_generator.W,
+                                  self.rays_generator.CH))
+        
+        depth_map = depth_map.reshape((self.rays_generator.H,
+                                      self.rays_generator.W))
+       
         return chs_map, depth_map, sparsity_loss
          
 
@@ -114,4 +123,12 @@ if __name__ == "__main__":
 
     # Infer
     frame, depth, sparsity = renderer(dummy_c2w)
-    print(frame.shape)
+    
+    # Parameters
+    print(len(list(renderer.rays_generator.parameters())))
+    print(len(list(renderer.sampler.parameters())))
+    print(len(list(renderer.embedder.parameters())))
+    print(len(list(renderer.nerf.parameters())))
+    print(len(list(renderer.integrator.parameters())))
+    print("---")
+    print(len(list(renderer.parameters())))

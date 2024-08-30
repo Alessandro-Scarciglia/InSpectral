@@ -62,5 +62,5 @@ if __name__ == "__main__":
     # Test inference
     samples = sampler(rays_o, rays_d)
 
-    # Show dimension
-    print(samples.shape)
+    # No params
+    print(list(sampler.parameters()))

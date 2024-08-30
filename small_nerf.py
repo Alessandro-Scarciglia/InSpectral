@@ -145,11 +145,12 @@ if __name__ == "__main__":
     # Instantiate the model object
     model = NeRFSmall()
 
-    # Define ad ummy input
+    # Define ad dummy input
     dummy_input = torch.tensor([[1., 2., 3., 4., 5., 6.],
                                [1., 2., 3., 4., 5., 6.]])
 
     # Try inference and test input/output dimension
     out = model(dummy_input)
     print(dummy_input.shape, out.shape)
+    print(len(list(model.parameters())))
     

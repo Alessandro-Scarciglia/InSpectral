@@ -10,12 +10,10 @@ class HashEmbedder(nn.Module):
                  n_features_per_level: int = 2,
                  log2_hashmap_size: int = 19,
                  low_resolution: int = 16,
-                 high_resolution: int = 512,
-                 device: str = "cpu"):
+                 high_resolution: int = 512):
         super(HashEmbedder, self).__init__()
 
         # Attributes
-        self.device = device
         self.bbox = bbox
         self.n_levels = n_levels
         self.n_feature_per_level = n_features_per_level
@@ -24,8 +22,7 @@ class HashEmbedder(nn.Module):
         self.high_res = torch.tensor(high_resolution)
         self.box_offset = torch.tensor([[[i,j,k] for i in [0, 1]
                                          for j in [0, 1]
-                                         for k in [0, 1]]],
-                                         device=device)
+                                         for k in [0, 1]]])
         self.primes = [1, 2654435761, 805459861,
                        3674653429, 2097192037, 1434869437, 2165219737]
 
@@ -176,3 +173,4 @@ if __name__ == "__main__":
 
     # Display
     print(coords.shape, emb_coords.shape)
+    print(emb_coords.device)

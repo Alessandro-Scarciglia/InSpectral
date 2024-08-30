@@ -7,14 +7,14 @@ class RenderingParameters:
 
         # Parameters
         self.parameters = {
-            "H": 32,
-            "W": 32,
-            "CH": 4,
+            "H": 256,
+            "W": 256,
+            "CH": 3,
             "K": torch.rand(3, 3),
 
             "n_ray_samples": 64,
-            "near": 0.,
-            "far": 5.,
+            "near": 1.,
+            "far": 7.,
 
             "input_dim": 3,
             "degree": 4,
@@ -27,15 +27,14 @@ class RenderingParameters:
             "log2_hashmap_size": 19,
             "low_res": 64,
             "high_res": 512,
-            "device": "cpu",
 
-            "n_layers": 10,
-            "hidden_dim": 128,
+            "n_layers": 3,
+            "hidden_dim": 64,
             "geo_feat_dim": 15,
-            "n_layers_color": 1,
-            "hidden_dim_color": 128,
-            "input_ch": 10,
-            "input_ch_views": 16,
+            "n_layers_color": 3,
+            "hidden_dim_color": 64,
+            "input_ch": 10,          # It shall be equal to "n_features_per_level"
+            "input_ch_views": 16,    # It shall be equal to "out_dim"
             "out_ch": 3,
         }
 
@@ -52,14 +51,32 @@ class RenderingParameters:
         self.parameters[key] = val
 
 
-# Run for usage example
-if __name__ == "__main__":
+class TrainingParameters:
+    def __init__(self):
 
-    # Define parameters object
-    params = RenderingParameters()
+        # Parameters
+        self.parameters = {
+            "lr": 1e-3,
+            "betas": (0.9, 0.999),
+            "eps": 1e-8,
+            "weight_decay": 0,
+            "degenerated_to_sgd": False,
+            "tot_var_weight": 1e-6,
+            "sparsity_loss_weight": 1e-6,
+            "decay_rate": 1e-1,
+            "decay_steps": 1000
+            }
 
-    # Try methods
-    print(params.get_param(key="hidden_dim"))
-    params.set_param(key="hidden_dim", val=256)
-    print(params.get_param(key="hidden_dim"))
+    # Function to get parameters
+    def get_param(self, key: str):
+        return self.parameters[key]
     
+    # Function to get all parameters
+    def get_all_params(self):
+        return self.parameters
+    
+    # Function to change a parameter
+    def set_param(self, key: str, val):
+        self.parameters[key] = val
+
+
