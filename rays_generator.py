@@ -2,6 +2,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import json
+import matplotlib.pyplot as plt
 
 
 class RaysGenerator(nn.Module):
@@ -42,7 +44,7 @@ class RaysGenerator(nn.Module):
         
         # Rotate directions according to c2w
         rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], dim=-1)
-
+        
         # Translate camera origin in word frame
         rays_o = c2w[:3, -1].expand(rays_d.shape)
 
@@ -50,8 +52,7 @@ class RaysGenerator(nn.Module):
     
 
     def forward(self,
-                c2w: torch.Tensor,
-                frame: torch.Tensor = torch.tensor([])):
+                c2w: torch.Tensor):
         '''
         The forward function returns both true color channels and rays when in "train" mode.
         Viceversa, it returns only rays when in inference-only mode.
@@ -59,31 +60,32 @@ class RaysGenerator(nn.Module):
 
         # Compute rays 
         rays_o, rays_d = self.get_rays(c2w)
-
-        # If the the mode is 'training', returns rays (input) and color channels (labels)
-        if frame.shape[0] != 0:
-            out = torch.concatenate([rays_o, rays_d, frame], dim=-1).reshape(-1, 6 + self.CH)
-
-        # Otherwise, return rays only (input)
-        else:
-            out = torch.concatenate([rays_o, rays_d], dim=-1).reshape(-1, 6)
-
+        
+        # Return rays origins and directions
+        out = torch.concatenate([rays_o, rays_d], dim=-1).reshape(-1, 6)
+    
         return out
-
 
 
 # Run for usage example
 if __name__ == "__main__":
 
-    # Generate random inputs
-    H, W, CH = 64, 64, 3
-    K = torch.rand((3, 3))
-    c2w = torch.rand((4, 4))
-    frame = torch.rand((H, W, CH))
+    # Generate inputs
+    H, W, CH = 32, 32, 3
+    
+    # Load calibration
+    with open("calibration/calibration.json", "r") as fopen:
+        K = torch.tensor(json.load(fopen)["mtx"]).reshape(3, 3)
 
+    # Generaterandom c2w and add a translation
+    c2w = torch.eye(4)
+    c2w[:3, -1] = torch.tensor([0., 0., 10.])
+    
     # Istantiate the model object
     prep = RaysGenerator(H=H, W=W, CH=CH, K=K)
-    output = prep(c2w, frame)
+
+    # Generate rays
+    output = prep(c2w)
 
     # Show
-    print(output)
+    print(output.shape)

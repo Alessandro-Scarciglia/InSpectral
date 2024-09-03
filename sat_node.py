@@ -2,6 +2,8 @@
 import json
 import torch
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 
 # Custom modules
 from virtual_sensors import VirtualSensors
@@ -24,7 +26,8 @@ class SatNode:
         # Retrieve intrinsic calibration matrix K
         with open(calibration_path, "r") as fopen:
             calib = json.load(fopen)
-            self.k = calib["mtx"]
+            self.k = np.array(calib["mtx"]).reshape(3, 3)
+            self.k[:2, :3] /= (1024/resolution)
 
         # Initialize measurements generator
         vsens = VirtualSensors(datapath=datapath,
@@ -39,7 +42,7 @@ class SatNode:
 
         # Create NeRF Renderer
         renderer_args = RenderingParameters()
-        self.renderer = NeuralRenderer(**renderer_args.get_all_params())
+        self.renderer = NeuralRenderer(**renderer_args.get_all_params(), K=self.k)
 
         # Create Training routine
         training_args = TrainingParameters()
@@ -58,24 +61,19 @@ class SatNode:
 # Run for test
 if __name__ == "__main__":
     sat1 = SatNode(roll_cfg="roll_120",
-                   resolution=64,
+                   resolution=32,
                    datapath='data/transforms.json',
                    calibration_path='calibration/calibration.json')
 
-    for i, (c2w, frame) in enumerate(sat1.get_measurement()):
-        
-        # Convert to tensors
-        c2w = torch.tensor(c2w, dtype=torch.float32)
-        frame = torch.tensor(frame, dtype=torch.float32)
+    for i, (c2w, frame) in enumerate(sat1.get_measurement()): 
         
         # Show every 10 samples
         if i % 10 == 0:
             with torch.no_grad():
                 test_chs_map, _, __, = sat1.render(c2w)
-                cv2.imshow("", test_chs_map.detach().numpy())
+                cv2.imshow("", test_chs_map.detach().numpy() * 255.)
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
 
-        
         loss = sat1.trainer.train_one_frame(c2w=c2w, frame=frame, niter=i)
         print(loss.item())

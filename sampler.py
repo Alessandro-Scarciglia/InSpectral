@@ -22,7 +22,7 @@ class Sampler(nn.Module):
         '''
         This function generate n_samples on a batch of rays which start from point
         rays_o (origins) and propagate toward rays_d (directions), within the
-        rendering region [near, far] and the rendering bbox [bbox_min, bbox_max].
+        rendering region [near, far].
         '''
 
         # Useful variables
@@ -63,4 +63,4 @@ if __name__ == "__main__":
     samples = sampler(rays_o, rays_d)
 
     # No params
-    print(list(sampler.parameters()))
+    print(samples)

@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 
 class NeRFSmall(nn.Module):
@@ -105,12 +106,12 @@ class NeRFSmall(nn.Module):
         '''
         Inference method.
         '''
-
+        
         # Split origin
         input_pts, input_views = torch.split(cam_rays,
                                              [self.input_ch, self.input_ch_views],
                                              dim=-1)
-        
+
         # Sigma estimation branch
         out = input_pts
         for layer in range(self.n_layers):
@@ -135,7 +136,7 @@ class NeRFSmall(nn.Module):
         # Extract color and produce inference output
         color = out
         outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
-
+        
         return outputs
     
 
@@ -152,5 +153,6 @@ if __name__ == "__main__":
     # Try inference and test input/output dimension
     out = model(dummy_input)
     print(dummy_input.shape, out.shape)
-    print(len(list(model.parameters())))
+    plt.hist(out[:, -1].detach().numpy().reshape(-1)*255, bins=100)
+    plt.show()
     

@@ -1,7 +1,7 @@
 # Modules import
 import cv2
 import json
-import numpy as np
+import torch
 
 
 class VirtualSensors:
@@ -50,7 +50,7 @@ class VirtualSensors:
 
             # TODO: add optional drift
 
-            yield np.array(c2w), resized_frame
+            yield torch.tensor(c2w), torch.tensor(resized_frame) / 255.0
 
 
 # Run for usage example
@@ -74,6 +74,7 @@ if __name__ == "__main__":
         
         # Visualize frame
         print(frame.shape)
-        cv2.imshow("", frame)
+        cv2.imshow("", frame.numpy())
         cv2.waitKey(0)
+        exit()
     

@@ -14,10 +14,10 @@ class Trainer:
                  lr: float = 0.001,
                  betas: tuple = (0.9, 0.999),
                  eps: float = 1e-8,
-                 weight_decay: int = 0,
+                 weight_decay: int = 1e-6,
                  degenerated_to_sgd: bool = False,
                  tot_var_weight: float = 1e-6,
-                 sparsity_loss_weight: float = 1e-6,
+                 sparsity_loss_weight: float = 1e-10,
                  tot_var_stop: int = 1000,
                  decay_rate: float = 1e-1,
                  decay_steps: int = 1000):
@@ -59,8 +59,8 @@ class Trainer:
                        niter: int):
         
         # Shift input and target to selected device
-        c2w = c2w.to(self.params.get_param("device"))
-        frame = frame.to(self.params.get_param("device"))
+        # c2w = c2w.to(self.params.get_param("device"))
+        # frame = frame.to(self.params.get_param("device"))
 
         # Forward pass
         chs_map, _, sparsity_loss = self.model(c2w)

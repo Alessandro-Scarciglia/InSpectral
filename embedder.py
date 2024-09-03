@@ -132,7 +132,7 @@ class HashEmbedder(nn.Module):
         # Iterate the forwarding for each resolution
         for i in range(self.n_levels):
             resolution = torch.floor(self.low_res * (self.b ** i))
-
+            
             # Get voxels from coordinates
             voxel_min, voxel_max, hashed_idx, keep_mask = self.get_voxel_vertices(coords,
                                                                                   self.bbox,
@@ -153,7 +153,7 @@ class HashEmbedder(nn.Module):
             keep_mask = keep_mask.sum(dim=-1) == keep_mask.shape[-1]
             new_coords = torch.cat(coords_embedded_all, dim=-1)
 
-            return new_coords, keep_mask
+        return new_coords, keep_mask
 
 
 

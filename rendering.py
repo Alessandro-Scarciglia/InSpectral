@@ -1,6 +1,8 @@
 # Import modules
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Import custom modules
 from parameters import RenderingParameters
@@ -81,11 +83,9 @@ class NeuralRenderer(nn.Module):
         # Hash-encode the samples coordinates and SH-encode the view directions
         enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
-
-        # Concatenate as a whole input vector and compute a forward pass with NeRF
+        
+        # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1)
-        print(enc_dirs.shape)
-
         output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
@@ -95,7 +95,7 @@ class NeuralRenderer(nn.Module):
         
         # Integrate densities and channels values estimate along each ray
         chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
-
+        
         # Resize frames
         chs_map = chs_map.reshape((self.rays_generator.H,
                                   self.rays_generator.W,
@@ -103,9 +103,8 @@ class NeuralRenderer(nn.Module):
         
         depth_map = depth_map.reshape((self.rays_generator.H,
                                       self.rays_generator.W))
-       
+
         return chs_map, depth_map, sparsity_loss
-         
 
 
 # Run for usage example
@@ -115,20 +114,19 @@ if __name__ == "__main__":
     params_obj = RenderingParameters()
     params = params_obj.get_all_params()
 
-    # Instantiate the model object
-    renderer = NeuralRenderer(**params)
+    # Retrieve intrinsic calibration matrix K
+    K = np.array([[731.2, 0.0, 512.0], [0.0, 731.2, 512], [0.0, 0.0, 1.0]])
 
-    # Generate dummy inputs
-    dummy_c2w = torch.rand((4, 4), dtype=torch.float32)
+    # Instantiate the model object
+    renderer = NeuralRenderer(**params, K=K)
+
+    # Generate c2w and add a translation
+    c2w = torch.eye(4)
+    c2w[:3, -1] = torch.tensor([0., 0., 5.])
 
     # Infer
-    frame, depth, sparsity = renderer(dummy_c2w)
-    
-    # Parameters
-    print(len(list(renderer.rays_generator.parameters())))
-    print(len(list(renderer.sampler.parameters())))
-    print(len(list(renderer.embedder.parameters())))
-    print(len(list(renderer.nerf.parameters())))
-    print(len(list(renderer.integrator.parameters())))
-    print("---")
-    print(len(list(renderer.parameters())))
+    frame, depth, sparsity = renderer(c2w)
+
+    # Test
+    plt.hist(frame.detach().numpy().reshape(-1), bins=30)
+    plt.show()
