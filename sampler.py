@@ -7,13 +7,15 @@ class Sampler(nn.Module):
     def __init__(self,
                  n_samples: int,
                  near: int,
-                 far: int):
+                 far: int,
+                 device: str = 'cpu'):
         super(Sampler, self).__init__()
 
         # Attributes
         self.n_samples = n_samples
-        self.near = near
-        self.far = far
+        self.device = torch.device(device)
+        self.near = torch.tensor(near, device=device)
+        self.far = torch.tensor(far, device=device)
 
 
     def forward(self,
@@ -25,11 +27,15 @@ class Sampler(nn.Module):
         rendering region [near, far].
         '''
 
+        # Bring rays to target device
+        rays_o = rays_o.to(self.device)
+        rays_d = rays_d.to(self.device)
+
         # Useful variables
         n_rays = rays_o.shape[0]
 
         # Generate equally spaced n_samples
-        tvals = torch.linspace(0., 1., steps=self.n_samples)
+        tvals = torch.linspace(0., 1., steps=self.n_samples, device=self.device)
         zvals = self.near * (1 - tvals) + self.far * tvals
         zvals = zvals.expand([n_rays, self.n_samples])
 
@@ -37,10 +43,10 @@ class Sampler(nn.Module):
         mids = 0.5 * (zvals[..., 1:] + zvals[..., :-1])
         upper = torch.cat([mids, zvals[..., -1:]], dim=-1)
         lower = torch.cat([zvals[..., :1], mids], dim=-1)
-        randvals = torch.rand(zvals.shape)
+        randvals = torch.rand(zvals.shape, device=self.device)
 
         zvals = lower + (upper - lower) * randvals
-
+        
         # Define 3D points along each ray
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
@@ -51,16 +57,19 @@ class Sampler(nn.Module):
 # Run for usage example
 if __name__ == "__main__":
 
+    # Define device
+    dev = "cuda"
+    
     # Istantiate the Sampler object
-    sampler = Sampler(n_samples=10, near=0., far=5.)
+    sampler = Sampler(n_samples=10, near=0., far=5., device=dev)
 
     # Dummy input
     rays_o = torch.tensor([[0., 0., 0.]])
     rays_d = torch.tensor([[1., 1., 1.]])
     rays_d /= torch.norm(rays_d, dim=-1)
-    
+
     # Test inference
     samples = sampler(rays_o, rays_d)
 
     # No params
-    print(samples)
+    print(samples[1].device)

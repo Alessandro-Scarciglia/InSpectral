@@ -10,21 +10,23 @@ class HashEmbedder(nn.Module):
                  n_features_per_level: int = 2,
                  log2_hashmap_size: int = 19,
                  low_resolution: int = 16,
-                 high_resolution: int = 512):
+                 high_resolution: int = 512,
+                 device: str = 'cpu'):
         super(HashEmbedder, self).__init__()
 
         # Attributes
+        self.device = torch.device(device)
         self.bbox = bbox
         self.n_levels = n_levels
         self.n_feature_per_level = n_features_per_level
         self.log2_hashmap_size = log2_hashmap_size
-        self.low_res = torch.tensor(low_resolution)
-        self.high_res = torch.tensor(high_resolution)
+        self.low_res = torch.tensor(low_resolution, device=device)
+        self.high_res = torch.tensor(high_resolution, device=device)
         self.box_offset = torch.tensor([[[i,j,k] for i in [0, 1]
                                          for j in [0, 1]
-                                         for k in [0, 1]]])
-        self.primes = [1, 2654435761, 805459861,
-                       3674653429, 2097192037, 1434869437, 2165219737]
+                                         for k in [0, 1]]], device=device)
+        self.primes = torch.tensor([1, 2654435761, 805459861,
+                       3674653429, 2097192037, 1434869437, 2165219737], device=device)
 
         # Compute output dimension
         self.out_dim = n_levels * n_features_per_level
@@ -32,12 +34,12 @@ class HashEmbedder(nn.Module):
         # Compute exponential base for resolution usampling
         self.b = torch.exp(
             torch.log(self.high_res / self.low_res) / (n_levels -1)
-        )
+        ).to(device)
 
         # Initialize embeddings. An embedding per level is created. 
         # For each embedding (vocab, features) = (2**log2_hashmap_size, feat_per_level)
         self.embeddings = nn.ModuleList(
-            [nn.Embedding(2 ** log2_hashmap_size, n_features_per_level) for _ in range(n_levels)]
+            [nn.Embedding(2 ** log2_hashmap_size, n_features_per_level).to(device) for _ in range(n_levels)]
         )
 
         # Custom uniform inizialization of parameters
@@ -87,7 +89,7 @@ class HashEmbedder(nn.Module):
 
         # 1) Apply the bitwise left shift operator.
         # 2) Apply the AND operator with xor_result
-        hashing = torch.tensor((1 << log2_hashmap_size) - 1).to(xor_result.device)
+        hashing = torch.tensor((1 << log2_hashmap_size) - 1, device=self.device)
         hashing = hashing & xor_result
 
         return hashing 
@@ -101,6 +103,7 @@ class HashEmbedder(nn.Module):
         
         # Unpack the bbox extrema
         bbox_min, bbox_max = bbox
+        bbox_min, bbox_max = bbox_min.to(self.device), bbox_max.to(self.device)
 
         # Build a binary mask to sign those coordinates out of the bbox.
         # Then, clamp eventual coordinates to the bbox domain limits.
@@ -111,7 +114,7 @@ class HashEmbedder(nn.Module):
         grid_size = (bbox_max - bbox_min) / resolution
         bottom_left_idx = torch.floor((coords - bbox_min) / grid_size).int()
         voxel_min_vertex = bottom_left_idx * grid_size + bbox_min
-        voxel_max_vertex = voxel_min_vertex + torch.tensor([1., 1., 1.]) * grid_size
+        voxel_max_vertex = voxel_min_vertex + torch.tensor([1., 1., 1.], device=self.device) * grid_size
 
         voxel_indices = bottom_left_idx.unsqueeze(1) + self.box_offset
         hashed_voxel_indices = self.hash(voxel_indices, log2_hashmap_size)
@@ -125,6 +128,9 @@ class HashEmbedder(nn.Module):
         In the end, embeddings and the binary mask of all valid coordinates
         are returned.
         '''
+
+        # Bring coordinates to target hardware
+        coords = coords.to(self.device)
         
         # Initialize the embeddings
         coords_embedded_all = list()
@@ -163,7 +169,7 @@ if __name__ == "__main__":
     # Instantiate the embedder object
     bbox = (torch.tensor([0., 0., 0.]), torch.tensor([10., 10., 10.]))
     embedder = HashEmbedder(bbox=bbox,
-                            n_features_per_level=5)
+                            n_features_per_level=5,device="cuda")
 
     # Define a set of coordinates
     coords = torch.tensor([[2, -1, 0], [6, 9, 2], [3, 4, 8]])
@@ -171,6 +177,4 @@ if __name__ == "__main__":
     # Call
     emb_coords, mask = embedder(coords)
 
-    # Display
-    print(coords.shape, emb_coords.shape)
-    print(emb_coords.device)
+    print(mask.device)

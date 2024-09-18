@@ -1,39 +1,40 @@
 # Import modules
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
-import numpy as np
 
 # Import custom modules
-from parameters import RenderingParameters
-from rays_generator import RaysGenerator
 from sampler import Sampler
 from embedder import HashEmbedder
 from sh_encoder import SHEncoder
 from small_nerf import NeRFSmall
 from integrator import Integrator
 
+# Parameters
+from parameters import *
+from rays_generator import RaysGenerator
+import matplotlib.pyplot as plt
+import numpy as np
+import json
+
 
 class NeuralRenderer(nn.Module):
     def __init__(self,
-                 H: int, W: int, CH: int, K: int,
                  n_ray_samples: int, near: float, far: float,
                  bbox: tuple, n_levels: int, n_features_per_level: int, log2_hashmap_size: int, low_res: int, high_res: int,
                  input_dim: int, degree: int, out_dim: int,
-                 n_layers: int, hidden_dim: int, geo_feat_dim: int, n_layers_color: int, hidden_dim_color: int, input_ch: int, input_ch_views: int, out_ch: int):
+                 n_layers: int, hidden_dim: int, geo_feat_dim: int, n_layers_color: int, hidden_dim_color: int, input_ch: int, input_ch_views: int, out_ch: int,
+                 device: str = 'cpu'):
         super(NeuralRenderer, self).__init__()
-        
-        # Generates rays origins and directions 
-        self.rays_generator = RaysGenerator(H=H,
-                                            W=W,
-                                            CH=CH,
-                                            K=K)
+
+        # Attributes
+        self.device = torch.device(device)
         
         # Generate a set of samples uniformly distributed along the ray,
         # within the [near, far] interval.
         self.sampler = Sampler(n_samples=n_ray_samples,
                                near=near,
-                               far=far)
+                               far=far,
+                               device=device)
         
         # Generate embeddings of an input coordinate
         self.embedder = HashEmbedder(bbox=bbox,
@@ -41,12 +42,14 @@ class NeuralRenderer(nn.Module):
                                      n_features_per_level=n_features_per_level,
                                      log2_hashmap_size=log2_hashmap_size,
                                      low_resolution=low_res,
-                                     high_resolution=high_res)
+                                     high_resolution=high_res,
+                                     device=device)
         
         # Generate encoding for view directions
         self.sh_encoder = SHEncoder(input_dim=input_dim,
                                     degree=degree,
-                                    out_dim=out_dim)
+                                    out_dim=out_dim,
+                                    device=device)
         
         # Infer the density and channel values for each sample along a ray
         self.nerf = NeRFSmall(n_layers=n_layers,
@@ -56,26 +59,29 @@ class NeuralRenderer(nn.Module):
                               hidden_dim_color=hidden_dim_color,
                               input_ch=input_ch,
                               input_ch_views=input_ch_views,
-                              out_ch=out_ch)
+                              out_ch=out_ch,
+                              device=device).to(device)
         
         # Integrates all densities and channels values along a ray to get the 
         # overall properties of a single pixel.
-        self.integrator = Integrator()
+        self.integrator = Integrator(device=device)
 
 
-    def forward(self, c2w: torch.Tensor):
+    def forward(self, rays: torch.Tensor):
+
+        # Bring rays to target device
+        rays = rays.to(self.device)
 
         # Preprocessing steps are carried out without retaining the gradient
         with torch.no_grad():
 
-            # Generate rays
-            rays = self.rays_generator(c2w)
-
             # Produce samples along each ray produced from camera
             samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
+            samples = samples.to(self.device)
+            zvals = zvals.to(self.device)
 
             # Concatenate points with view direction and kill one dimension
-            viewdirs = rays[..., 3:6].unsqueeze(1)
+            viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
             viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
             rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
             rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
@@ -85,48 +91,41 @@ class NeuralRenderer(nn.Module):
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
         
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
-        input_vector = torch.cat([enc_points, enc_dirs], dim=-1)
+        input_vector = torch.cat([enc_points, enc_dirs], dim=-1).to(self.device)
         output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
         # and reshape as [points, samples, channels]
+        output = output.to(self.device)
         output[~keep_mask, -1] = 0
         output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
         
         # Integrate densities and channels values estimate along each ray
         chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
-        
-        # Resize frames
-        chs_map = chs_map.reshape((self.rays_generator.H,
-                                  self.rays_generator.W,
-                                  self.rays_generator.CH))
-        
-        depth_map = depth_map.reshape((self.rays_generator.H,
-                                      self.rays_generator.W))
 
         return chs_map, depth_map, sparsity_loss
+    
 
 
-# Run for usage example
 if __name__ == "__main__":
 
-    # Import parameters
-    params_obj = RenderingParameters()
-    params = params_obj.get_all_params()
-
     # Retrieve intrinsic calibration matrix K
-    K = np.array([[731.2, 0.0, 512.0], [0.0, 731.2, 512], [0.0, 0.0, 1.0]])
+    with open('calibration/calibration.json', "r") as fopen:
+        calib = np.array(json.load(fopen)["mtx"]).reshape(3, 3)
+        calib[:2, :2] /=  16.
 
-    # Instantiate the model object
-    renderer = NeuralRenderer(**params, K=K)
-
-    # Generate c2w and add a translation
-    c2w = torch.eye(4)
-    c2w[:3, -1] = torch.tensor([0., 0., 5.])
-
-    # Infer
-    frame, depth, sparsity = renderer(c2w)
-
-    # Test
-    plt.hist(frame.detach().numpy().reshape(-1), bins=30)
-    plt.show()
+    raygen = RaysGenerator(**rays_parameters, K=calib)
+    model = NeuralRenderer(**sampler_parameters,
+                            **sh_parameters,
+                            **hash_parameters,
+                            **nerf_parameters,
+                            device="cuda:0")
+    
+    c2w = torch.tensor([[1, 0, 0, 0],
+                        [0, 1, 0, 0],
+                        [0, 0, 1, 5],
+                        [0, 0, 0, 1]], dtype=torch.float32)
+    
+    rays = raygen(c2w).reshape(-1, 6)
+    
+    rgb, depth, _ = model(rays)

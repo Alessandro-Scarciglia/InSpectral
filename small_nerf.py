@@ -14,10 +14,12 @@ class NeRFSmall(nn.Module):
                  hidden_dim_color: int = 64,
                  input_ch: int = 3,
                  input_ch_views: int = 3,
-                 out_ch: int = 3):
+                 out_ch: int = 3,
+                 device: str = 'cpu'):
         super(NeRFSmall, self).__init__()
 
         # Attributes
+        self.device = torch.device(device)
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
         self.n_layers = n_layers
@@ -106,6 +108,9 @@ class NeRFSmall(nn.Module):
         '''
         Inference method.
         '''
+
+        # Bring rays to target device
+        cam_rays = cam_rays.to(self.device)
         
         # Split origin
         input_pts, input_views = torch.split(cam_rays,
@@ -119,7 +124,7 @@ class NeRFSmall(nn.Module):
 
             # If the layer is not the last, add relu unit
             if layer != self.n_layers - 1:
-                out = F.relu(out, inplace=True)
+                out = F.leaky_relu(out, inplace=True)
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
@@ -131,7 +136,7 @@ class NeRFSmall(nn.Module):
 
             # If the layer is not the last, add relu unit
             if layer != self.n_layers_color - 1:
-                out = F.relu(out, inplace=True)
+                out = F.leaky_relu(out, inplace=True)
         
         # Extract color and produce inference output
         color = out
@@ -144,15 +149,12 @@ class NeRFSmall(nn.Module):
 if __name__ == "__main__":
     
     # Instantiate the model object
-    model = NeRFSmall()
+    model = NeRFSmall(device="cuda").to("cuda")
 
     # Define ad dummy input
-    dummy_input = torch.tensor([[1., 2., 3., 4., 5., 6.],
-                               [1., 2., 3., 4., 5., 6.]])
+    dummy_input = torch.rand((100, 6))
 
     # Try inference and test input/output dimension
     out = model(dummy_input)
-    print(dummy_input.shape, out.shape)
-    plt.hist(out[:, -1].detach().numpy().reshape(-1)*255, bins=100)
-    plt.show()
+    print(dummy_input.shape, out.shape, out.device)
     

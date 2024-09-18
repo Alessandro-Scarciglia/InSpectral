@@ -7,10 +7,12 @@ class SHEncoder(nn.Module):
     def __init__(self,
                  input_dim: int = 3,
                  degree: int = 4,
-                 out_dim: int = 16):
+                 out_dim: int = 16,
+                 device: str = 'cpu'):
         super(SHEncoder, self).__init__()
 
         # Attributes
+        self.device = torch.device(device)
         self.input_dim = input_dim
         self.degree = degree
         self.out_dim = out_dim
@@ -20,19 +22,19 @@ class SHEncoder(nn.Module):
         assert self.degree >= 1 and self.degree <= 5
 
         # SH Coefficients
-        self.C0 = 0.28209479177387814
+        self.C0 = torch.tensor(0.28209479177387814, device=device)
 
-        self.C1 = 0.4886025119029199
+        self.C1 = torch.tensor(0.4886025119029199, device=device)
 
-        self.C2 = [
+        self.C2 = torch.tensor([
             1.0925484305920792,
             -1.0925484305920792,
             0.31539156525252005,
             -1.0925484305920792,
             0.5462742152960396
-        ]
+        ], device=device)
 
-        self.C3 = [
+        self.C3 = torch.tensor([
             -0.5900435899266435,
             2.890611442640554,
             -0.4570457994644658,
@@ -40,9 +42,9 @@ class SHEncoder(nn.Module):
             -0.4570457994644658,
             1.445305721320277,
             -0.5900435899266435
-        ]
+        ], device=device)
 
-        self.C4 = [
+        self.C4 = torch.tensor([
             2.5033429417967046,
             -1.7701307697799304,
             0.9461746957575601,
@@ -52,13 +54,18 @@ class SHEncoder(nn.Module):
             0.47308734787878004,
             -1.7701307697799304,
             0.6258357354491761
-        ]
+        ], device=device)
 
 
     def forward(self, input, **kwargs):
 
+        # Bring input to target device
+        input = input.to(self.device)
+
         # Prepare input for encoding
-        result = torch.empty((*input.shape[:-1], self.out_dim), dtype=input.dtype, device=input.device)
+        result = torch.empty((*input.shape[:-1], self.out_dim),
+                             dtype=input.dtype,
+                             device=self.device)
         x, y, z = input.unbind(-1)
 
         # First order

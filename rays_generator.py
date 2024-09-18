@@ -38,8 +38,8 @@ class RaysGenerator(nn.Module):
         # Compute directions
         # TODO: check camera frame consistency
         dirs = torch.stack([(i - self.K[0][2]) / self.K[0][0],
-                            -(j - self.K[1][2]) / self.K[1][1],
-                            -torch.ones_like(i)],
+                            (j - self.K[1][2]) / self.K[1][1],
+                            torch.ones_like(i)],
                             dim=-1)
         
         # Rotate directions according to c2w
@@ -62,7 +62,7 @@ class RaysGenerator(nn.Module):
         rays_o, rays_d = self.get_rays(c2w)
         
         # Return rays origins and directions
-        out = torch.concatenate([rays_o, rays_d], dim=-1).reshape(-1, 6)
+        out = torch.concatenate([rays_o, rays_d], dim=-1)
     
         return out
 
