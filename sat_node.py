@@ -2,8 +2,6 @@
 import json
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
-import cv2
 
 # Custom modules
 from virtual_sensors import VirtualSensors
@@ -57,7 +55,7 @@ class SatNode:
                                        device=device)
 
         # Create Training routine
-        self.trainer = Trainer(self.renderer, **training_parameters)
+        self.trainer = Trainer(self.renderer, **optimizer_parameters)
 
 
     def get_measurement(self):
@@ -74,61 +72,3 @@ class SatNode:
         frame = self.renderer(rays)
         
         return frame
-
-
-# Run for test
-if __name__ == "__main__":
-
-    # Instantiate the satellite object
-    sat1 = SatNode(roll_cfg="roll_0",
-                   resolution=128,
-                   datapath='data/transforms.json',
-                   calibration_path='calibration/calibration.json',
-                   device='cuda:0')
-
-    # Start acquisition of images
-    for i, (c2w, frame) in enumerate(sat1.get_measurement()): 
-      
-        # Save a test frame every 5 acquisition
-        if i % 5 == 0:
-            sat1.valid_set.append((c2w, frame))
-            continue
-
-        # Populate the data buffer
-        sat1.train_set.get_data(c2w=c2w, frame=frame)
-        
-        # Display acquisition
-        cv2.imshow("Acquisition Phase", frame.detach().numpy())
-        cv2.waitKey(1)
-    
-    # Close display windows
-    cv2.destroyAllWindows()
-
-    # Generate DataLoader from Dataset
-    dataloader = DataLoader(dataset=sat1.train_set, batch_size=32*32, shuffle=True, num_workers=4)
-
-    # Training loop
-    for i, rays_batch in enumerate(dataloader):
-
-        # Train one batch
-        lossval = sat1.trainer.train_one_batch(rays=rays_batch[:, :6],
-                                               labels=rays_batch[:, 6:],
-                                               niter=i)
-        
-        print(f"Batch n.{i} | Loss: {lossval:.5f}")
-
-        # Show rendering every 10 batches 
-        if i % 500 == 0:
-            with torch.no_grad():
-                # Load test case
-                test_c2w, test_frame = sat1.valid_set[7]
-
-                # Render frame
-                frame, _, _ = sat1.render(test_c2w)
-
-                # Display result
-                # frame = frame.reshape(sat1.H, sat1.W, 3)
-                # disp = np.hstack([frame, test_frame.cpu()])
-                # cv2.imshow("Rendering Test", disp)
-                # cv2.waitKey(0)
-                # cv2.destroyAllWindows()

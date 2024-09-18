@@ -1,11 +1,9 @@
 # Import modules
 import torch
-import numpy as np
-import matplotlib.pyplot as plt
 
 # Import custom modules
-from radam import RAdam
 from parameters import *
+import torch.optim.lr_scheduler as lr_scheduler
 
 
 class Trainer:
@@ -33,26 +31,20 @@ class Trainer:
         self.tot_var_stop = tot_var_stop
         self.sparsity_loss_w = sparsity_loss_weight
         self.decay_rate = decay_rate
-        self.global_steps = 0
         self.decay_steps = decay_steps
         self.params = hash_parameters
 
         # Lambdas
         self.img2mse = lambda x, y : torch.mean((x - y) ** 2)
-        self.mse2psnr = lambda x : -10. * torch.log(x) / torch.log(torch.Tensor([10.]))
 
         # Instantiate the optimizer
-        self.optimizer = RAdam(
-            params=model.parameters(),
-            lr=self.lr,
-            betas=self.betas,
-            eps=self.eps,
-            weight_decay=self.weight_decay,
-            degenerated_to_sgd=self.degenerated_to_sgd
-        )
-
         self.optimizer = torch.optim.AdamW(params=model.parameters(),
                                           lr=self.lr)
+        
+        # Create a scheduler
+        self.scheduler = lr_scheduler.StepLR(self.optimizer,
+                                             step_size=10,
+                                             gamma=0.1)
 
     def train_one_batch(self,
                        rays: torch.Tensor,
@@ -86,17 +78,6 @@ class Trainer:
 
         # Increase the global steps
         self.global_steps += 1
-
-        # Plot weights every 500
-        weights = []
-        if niter % 500 == 0:
-            for param in self.model.parameters():
-                if param.requires_grad:
-                    weights.append(param.data.view(-1).cpu().numpy())
-        
-            all_weights = torch.cat([torch.tensor(w) for w in weights]).numpy()
-            plt.hist(all_weights, bins=50)
-            plt.show()
 
         return loss
 

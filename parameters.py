@@ -1,11 +1,20 @@
 # Import modules
 import torch
 
+# General sat node setup
+cfg_parameters = {
+    "roll_cfg": "roll_0",
+    "resolution": 128,
+    "datapath": "data/transforms.json",
+    "calibration_path": "calibration/calibration.json",
+    "device": "cuda:0"
+}
+
 
 # Parameter dictionary for rays generation
 rays_parameters = {
-    "H": 128,
-    "W": 128,
+    "H": cfg_parameters["resolution"],
+    "W": cfg_parameters["resolution"],
     "CH": 3,
 }
 
@@ -45,14 +54,14 @@ nerf_parameters = {
     "geo_feat_dim": 15,
     "n_layers_color": 3,
     "hidden_dim_color": 64,
-    "input_ch": 32,          
+    "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
     "input_ch_views": 16,    
-    "out_ch": 3,
+    "out_ch": rays_parameters["CH"],
 }
 
 
 # Parameter dictionary for training 
-training_parameters = {
+optimizer_parameters = {
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
@@ -63,3 +72,14 @@ training_parameters = {
     "decay_rate": 10,
     "decay_steps": 1000
 }
+
+# Training parameters
+BATCH_SIZE = 32*32*4*
+EPOCHS = 10
+TEST_EVERY = 36
+
+# Display frame during rendez-vous
+DISP = True
+
+# Verbose during training
+VERB = True
