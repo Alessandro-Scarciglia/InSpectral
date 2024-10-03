@@ -1,10 +1,23 @@
 # Import modules
 import torch
 
+
+# Training parameters
+BATCH_SIZE = 32*32*8
+EPOCHS = 10
+TEST_EVERY = 36
+
+# Display frame during rendez-vous
+DISP = True
+
+# Verbose during training
+VERB = True
+
+
 # General sat node setup
 cfg_parameters = {
     "roll_cfg": "roll_0",
-    "resolution": 128,
+    "resolution": 256,
     "datapath": "data/transforms.json",
     "calibration_path": "calibration/calibration.json",
     "device": "cuda:0"
@@ -22,8 +35,8 @@ rays_parameters = {
 # Parameter dictionary for sampler
 sampler_parameters = {
     "n_ray_samples": 200,
-    "near": 0.,
-    "far": 5.,
+    "near": 1.,
+    "far": 4.,
 }
 
 
@@ -62,7 +75,7 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 optimizer_parameters = {
-    "lr": 0.001,
+    "lr": 0.005,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "weight_decay": 0,
@@ -72,14 +85,3 @@ optimizer_parameters = {
     "decay_rate": 10,
     "decay_steps": 1000
 }
-
-# Training parameters
-BATCH_SIZE = 32*32*4*
-EPOCHS = 10
-TEST_EVERY = 36
-
-# Display frame during rendez-vous
-DISP = True
-
-# Verbose during training
-VERB = True

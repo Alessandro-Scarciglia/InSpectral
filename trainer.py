@@ -43,13 +43,12 @@ class Trainer:
         
         # Create a scheduler
         self.scheduler = lr_scheduler.StepLR(self.optimizer,
-                                             step_size=10,
+                                             step_size=1,
                                              gamma=0.1)
 
     def train_one_batch(self,
                        rays: torch.Tensor,
-                       labels: torch.Tensor,
-                       niter: int):
+                       labels: torch.Tensor):
         
         # Move labels to device
         labels = labels.to(self.model.device)
@@ -61,23 +60,12 @@ class Trainer:
         self.optimizer.zero_grad()
         loss_on_colors = self.img2mse(chs_map, labels)
 
-        # Compute combination of losses
+        # Combinate losses
         loss = loss_on_colors
-
-        # Reject the total variation after first N iterations
-        if niter > self.tot_var_stop:
-            self.tot_var_w = 0
 
         # Backprop
         loss.backward()
         self.optimizer.step()
-
-        # Update learning rate
-        for param_group in self.optimizer.param_groups:
-            param_group["lr"] = self.lr * (self.decay_rate ** (self.global_steps / self.decay_steps))
-
-        # Increase the global steps
-        self.global_steps += 1
 
         return loss
 

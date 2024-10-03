@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 import cv2
 from datetime import datetime
 import os
+import time
 
 
 # Training
@@ -24,6 +25,7 @@ def main(folder_name: str):
 
         # Save a test frame every N frames
         if i % TEST_EVERY == 0:
+
             sat_node.valid_set.append((c2w, frame))
             continue
 
@@ -35,6 +37,8 @@ def main(folder_name: str):
         if DISP:
             cv2.imshow("Rendez-vous View", frame.detach().numpy())
             cv2.waitKey(1)
+
+    
     
     # Close all visualizations, if any
     cv2.destroyAllWindows()
@@ -47,6 +51,9 @@ def main(folder_name: str):
     
     # Auxiliary funcs
     psnr = lambda img1, img2, max_pixel_value = 1.0 : 10. * torch.log10(max_pixel_value ** 2 / torch.mean((img1 - img2) ** 2))
+
+    # Start timing
+    t_start = time.time()
     
     # Training loop
     for epoch in range(EPOCHS):
@@ -56,20 +63,21 @@ def main(folder_name: str):
 
             # Train one batch
             loss_val = sat_node.trainer.train_one_batch(rays=ray_batch[:, :6],
-                                                        labels=ray_batch[:, 6:],
-                                                        niter=niter)
+                                                        labels=ray_batch[:, 6:])
             
             # Display loss values
             if VERB:
-                print(f"Epoch: {epoch} | # Iter: {niter} | Loss: {loss_val.item():.5f}")
+                print(f"Epoch: {epoch} | # Iter: {niter} | Elapsed time (s): {(time.time()-t_start):.3f} | Loss: {loss_val.item():.5f}")
 
         # Test model on test set
         with torch.no_grad():
 
-            # Create test folder and metrics buffer
+            # Create test folder
             path_to_chkpt = f"{folder_name}/epoch_{epoch}/"
             path_for_frames = f"{path_to_chkpt}/frames/"
             os.makedirs(path_for_frames)
+            
+            # Create metrics buffer
             test_psnr_vals = []
             
             # Loop through the validation set

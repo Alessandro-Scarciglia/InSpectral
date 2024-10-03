@@ -58,6 +58,7 @@ class SatNode:
         self.trainer = Trainer(self.renderer, **optimizer_parameters)
 
 
+    # Obtain one measurement 
     def get_measurement(self):
         return self.measurements
     

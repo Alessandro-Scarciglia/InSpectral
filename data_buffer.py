@@ -63,7 +63,10 @@ if __name__ == "__main__":
                            roll_cfg="roll_0")
     
     # Fill the buffer
-    for measurement in vsens.get_measurement():
-        print(len(ds))
+    for i, measurement in enumerate(vsens.get_measurement()):
         ds.get_data(*measurement)
-        print(ds[0])
+        
+        if i == 10:
+            break
+
+    print(ds[-1])
