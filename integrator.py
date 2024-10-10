@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
-import matplotlib.pyplot as plt
 
 
 class Integrator(nn.Module):
@@ -60,5 +59,6 @@ class Integrator(nn.Module):
         except:
             sparsity_loss = torch.tensor(0.0, device=self.device)
             print("Warning: Sparsity Loss cannot be computed.")
+
 
         return chs_map, depth_map, sparsity_loss

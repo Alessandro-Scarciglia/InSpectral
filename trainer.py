@@ -43,8 +43,9 @@ class Trainer:
         
         # Create a scheduler
         self.scheduler = lr_scheduler.StepLR(self.optimizer,
-                                             step_size=1,
-                                             gamma=0.1)
+                                             step_size=7,
+                                             gamma=0.1,
+                                             verbose=True)
 
     def train_one_batch(self,
                        rays: torch.Tensor,
@@ -54,19 +55,21 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, sparsity_loss = self.model(rays)
+        chs_map, depth_map, sparsity_loss, embs = self.model(rays)
 
-        # Compute losses
+        # Zero the gradient
         self.optimizer.zero_grad()
+
+        # Compute photometric loss on pixel estimate
         loss_on_colors = self.img2mse(chs_map, labels)
 
-        # Combinate losses
-        loss = loss_on_colors
+        # TODO: Compute Total Variation Loss on position embeddings
 
+        # Combinate losses
+        loss = loss_on_colors 
+    
         # Backprop
         loss.backward()
         self.optimizer.step()
 
         return loss
-
-        

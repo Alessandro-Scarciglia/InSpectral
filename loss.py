@@ -49,6 +49,7 @@ def total_variation_loss(embeddings, min_resolution, max_resolution, level, log2
 
     return (tv_x + tv_y + tv_z)/cube_size
 
+
 def sigma_sparsity_loss(sigmas):
     # Using Cauchy Sparsity loss on sigma values
     return torch.log(1.0 + 2*sigmas**2).sum(dim=-1)

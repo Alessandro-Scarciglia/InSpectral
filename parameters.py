@@ -3,9 +3,10 @@ import torch
 
 
 # Training parameters
-BATCH_SIZE = 32*32*8
-EPOCHS = 10
-TEST_EVERY = 36
+BATCH_SIZE = 32*32*16
+EPOCHS = 15
+SAMPLE_EVERY = 2 # 180 training images
+TEST_EVERY = 72  #  5 test images
 
 # Display frame during rendez-vous
 DISP = True
@@ -18,6 +19,7 @@ VERB = True
 cfg_parameters = {
     "roll_cfg": "roll_0",
     "resolution": 256,
+    "channels": 1,
     "datapath": "data/transforms.json",
     "calibration_path": "calibration/calibration.json",
     "device": "cuda:0"
@@ -28,15 +30,15 @@ cfg_parameters = {
 rays_parameters = {
     "H": cfg_parameters["resolution"],
     "W": cfg_parameters["resolution"],
-    "CH": 3,
+    "CH": cfg_parameters["channels"],
 }
 
 
 # Parameter dictionary for sampler
 sampler_parameters = {
-    "n_ray_samples": 200,
-    "near": 1.,
-    "far": 4.,
+    "n_ray_samples": 100,
+    "near": 0.,
+    "far": 7.,
 }
 
 
@@ -65,17 +67,17 @@ nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 64,
     "geo_feat_dim": 15,
-    "n_layers_color": 3,
+    "n_layers_color": 1,
     "hidden_dim_color": 64,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
     "input_ch_views": 16,    
-    "out_ch": rays_parameters["CH"],
+    "out_ch": cfg_parameters["channels"],
 }
 
 
 # Parameter dictionary for training 
 optimizer_parameters = {
-    "lr": 0.005,
+    "lr": 0.05,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "weight_decay": 0,

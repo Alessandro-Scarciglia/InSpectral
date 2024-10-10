@@ -18,6 +18,7 @@ class SatNode:
                  datapath: str,
                  calibration_path: str,
                  resolution: int = 1024,
+                 channels: int = 1,
                  lin_drift: float = 0,
                  ang_drift: float = 0,
                  device: str = 'cpu'
@@ -39,6 +40,7 @@ class SatNode:
 
         # Define the image size
         self.H = self.W = resolution
+        self.CH = channels
 
         # Create data buffers
         self.train_set = DataBuffer(**rays_parameters, K=self.k)

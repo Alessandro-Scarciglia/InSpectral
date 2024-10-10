@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 
+torch.manual_seed(1234)
 
 class HashEmbedder(nn.Module):
     def __init__(self,
@@ -25,6 +26,7 @@ class HashEmbedder(nn.Module):
         self.box_offset = torch.tensor([[[i,j,k] for i in [0, 1]
                                          for j in [0, 1]
                                          for k in [0, 1]]], device=device)
+        
         self.primes = torch.tensor([1, 2654435761, 805459861,
                        3674653429, 2097192037, 1434869437, 2165219737], device=device)
 
@@ -76,6 +78,7 @@ class HashEmbedder(nn.Module):
         return c
     
 
+    # Hashing function
     def hash(self,
              coords: torch.Tensor,
              log2_hashmap_size: int):
@@ -83,7 +86,7 @@ class HashEmbedder(nn.Module):
         # Initialize xor results
         xor_result = torch.zeros_like(coords)[..., 0]
 
-        # Compute hasing for each coordinate dimension
+        # Compute hashing for each coordinate dimension
         for i in range(coords.shape[-1]):
             xor_result ^= coords[..., i] * self.primes[i]
 
@@ -153,6 +156,7 @@ class HashEmbedder(nn.Module):
                                                            voxel_min,
                                                            voxel_max,
                                                            voxel_embedds)
+            
             coords_embedded_all.append(coords_embedded)
 
             # Adjust dimensions
@@ -167,14 +171,19 @@ class HashEmbedder(nn.Module):
 if __name__ == "__main__":
     
     # Instantiate the embedder object
-    bbox = (torch.tensor([0., 0., 0.]), torch.tensor([10., 10., 10.]))
+    bbox = (torch.tensor([0., 0., 0.]), torch.tensor([2., 2., 2.]))
+
     embedder = HashEmbedder(bbox=bbox,
-                            n_features_per_level=5,device="cuda")
+                            n_levels=1,
+                            n_features_per_level=2,
+                            log2_hashmap_size=4,
+                            low_resolution=2,
+                            high_resolution=8,
+                            device="cuda")
 
     # Define a set of coordinates
-    coords = torch.tensor([[2, -1, 0], [6, 9, 2], [3, 4, 8]])
+    coords = torch.tensor([[2, 1.5, 1]])
 
     # Call
     emb_coords, mask = embedder(coords)
-
-    print(mask.device)
+    print(emb_coords)

@@ -2,6 +2,7 @@
 import cv2
 import json
 import torch
+import numpy as np
 
 
 class VirtualSensors:
@@ -10,7 +11,8 @@ class VirtualSensors:
                  resolution: int = 1024,
                  roll_cfg: str = "roll_0",
                  lin_drift: float = 0.,
-                 ang_drift: float = 0.):
+                 ang_drift: float = 0.,
+                 is_rgb: bool = False):
         
         # Attributes
         self.datapath = datapath
@@ -18,6 +20,7 @@ class VirtualSensors:
         self.roll_cfg = roll_cfg
         self.lin_drift = lin_drift
         self.ang_drift = ang_drift
+        self.is_rgb = is_rgb
         
 
     def get_measurement(self):
@@ -48,9 +51,16 @@ class VirtualSensors:
             frame = cv2.imread(imagepath)
             resized_frame = cv2.resize(frame, (self.res, self.res))
 
+            # If rgb flag is False, convert in grayscale
+            if not self.is_rgb:
+                gray_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
+                out_frame = np.expand_dims(gray_frame, axis=-1)
+            else:
+                out_frame = resized_frame
+
             # TODO: add optional drift
 
-            yield torch.tensor(c2w), torch.tensor(resized_frame) / 255.0
+            yield torch.tensor(c2w), torch.tensor(out_frame) / 255.0
 
 
 # Run for usage example

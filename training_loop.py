@@ -20,24 +20,34 @@ def main(folder_name: str):
     # Instantiate the satellite node
     sat_node = SatNode(**cfg_parameters)
 
+    # Count frames
+    train_frames_cnt = 0
+    valid_frames_cnt = 0
+
     # Rendez-vous around the target
     for i, (c2w, frame) in enumerate(sat_node.get_measurement()):
 
-        # Save a test frame every N frames
-        if i % TEST_EVERY == 0:
+        # Sub-sample the acquisition
+        if i % SAMPLE_EVERY == 0:
 
-            sat_node.valid_set.append((c2w, frame))
-            continue
-
-        # Populate data buffer
-        sat_node.train_set.get_data(c2w=c2w,
-                                    frame=frame)
+            # Populate data buffer
+            sat_node.train_set.get_data(c2w=c2w,
+                                        frame=frame)
+            train_frames_cnt += 1
+            
+            # Visualize rendez-vous
+            if DISP:
+                cv2.imshow("Rendez-vous View", frame.detach().numpy())
+                cv2.waitKey(10)
         
-        # Visualize rendez-vous
-        if DISP:
-            cv2.imshow("Rendez-vous View", frame.detach().numpy())
-            cv2.waitKey(1)
+        # Save a test frame every N frames
+            if i % TEST_EVERY == 0:
+                sat_node.valid_set.append((c2w, frame))
+                valid_frames_cnt += 1
 
+    # Display acquisition output
+    print(f"Training frames collected: {train_frames_cnt}")
+    print(f"Validation frames collected: {valid_frames_cnt}")
     
     
     # Close all visualizations, if any
@@ -62,12 +72,12 @@ def main(folder_name: str):
         for niter, ray_batch in enumerate(dataloader):
 
             # Train one batch
-            loss_val = sat_node.trainer.train_one_batch(rays=ray_batch[:, :6],
+            loss_val, loss_rgb, loss_sigma = sat_node.trainer.train_one_batch(rays=ray_batch[:, :6],
                                                         labels=ray_batch[:, 6:])
             
             # Display loss values
             if VERB:
-                print(f"Epoch: {epoch} | # Iter: {niter} | Elapsed time (s): {(time.time()-t_start):.3f} | Loss: {loss_val.item():.5f}")
+                print(f"Epoch: {epoch} | # Iter: {niter} | Elapsed time (s): {(time.time()-t_start):.3f} | Loss: {loss_val.item():.5f} | Loss RGB: {loss_rgb:.5f} | Loss Sparsity: {loss_sigma:.5f}")
 
         # Test model on test set
         with torch.no_grad():
@@ -85,7 +95,7 @@ def main(folder_name: str):
 
                 # Render frame and compute PSNR
                 test_rendering, _, _ = sat_node.render(c2w=test_c2w)
-                test_rendering = test_rendering.detach().cpu().numpy().reshape(sat_node.H, sat_node.W, 3)
+                test_rendering = test_rendering.detach().cpu().numpy().reshape(sat_node.H, sat_node.W, sat_node.CH)
                 test_psnr_vals.append(psnr(test_frame, test_rendering))
 
                 # Store rendering
@@ -106,6 +116,7 @@ def main(folder_name: str):
 
         # Call scheduler at the end of each epoch
         sat_node.trainer.scheduler.step()
+        print(f"Updated LR: {sat_node.trainer.scheduler.get_last_lr()[0]:.5f}")
 
 
 # Main
