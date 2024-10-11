@@ -55,7 +55,7 @@ class Integrator(nn.Module):
         try:
             sparsity_loss = Categorical(
                 probs = torch.cat([weights, 1.0 - weights.sum(-1, keepdim=True) + 1e-6], dim=-1)
-            ).entropy()
+            ).entropy().sum()
         except:
             sparsity_loss = torch.tensor(0.0, device=self.device)
             print("Warning: Sparsity Loss cannot be computed.")

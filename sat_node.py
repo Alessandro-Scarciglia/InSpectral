@@ -72,6 +72,6 @@ class SatNode:
         rays = rays.reshape(-1, 6)
         
         # Rendering of the frame
-        frame = self.renderer(rays)
+        rgb, depth, sparsity = self.renderer(rays)
         
-        return frame
+        return rgb, depth, sparsity

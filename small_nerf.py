@@ -121,13 +121,13 @@ class NeRFSmall(nn.Module):
         out = input_pts
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
-
-            # If the layer is not the last, add relu unit
-            if layer != self.n_layers - 1:
-                out = F.leaky_relu(out, inplace=True)
+            out = F.relu(out, inplace=True)
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
+
+        # # TODO: Clamp sigma for keeping gradients
+        # sigma = torch.clamp(sigma, min=1e-3)
 
         # Color estimation branch
         out = torch.cat([input_views, geo_features], dim=-1)
@@ -136,7 +136,7 @@ class NeRFSmall(nn.Module):
 
             # If the layer is not the last, add relu unit
             if layer != self.n_layers_color - 1:
-                out = F.leaky_relu(out, inplace=True)
+                out = F.relu(out, inplace=True)
         
         # Extract color and produce inference output
         color = out

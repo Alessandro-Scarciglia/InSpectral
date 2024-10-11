@@ -6,7 +6,7 @@ import torch
 BATCH_SIZE = 32*32*16
 EPOCHS = 15
 SAMPLE_EVERY = 2 # 180 training images
-TEST_EVERY = 72  #  5 test images
+TEST_EVERY = 10  #  36 test images
 
 # Display frame during rendez-vous
 DISP = True
@@ -38,7 +38,7 @@ rays_parameters = {
 sampler_parameters = {
     "n_ray_samples": 100,
     "near": 0.,
-    "far": 7.,
+    "far": 8.,
 }
 
 
@@ -77,13 +77,13 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 optimizer_parameters = {
-    "lr": 0.05,
+    "lr": 0.01,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "weight_decay": 0,
     "degenerated_to_sgd": False,
     "tot_var_weight": 1e-6,
-    "sparsity_loss_weight": 1e-6,
+    "sparsity_loss_weight": 1e-10,
     "decay_rate": 10,
     "decay_steps": 1000
 }

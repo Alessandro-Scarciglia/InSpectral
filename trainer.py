@@ -4,6 +4,7 @@ import torch
 # Import custom modules
 from parameters import *
 import torch.optim.lr_scheduler as lr_scheduler
+from loss import total_variation_loss, sigma_sparsity_loss
 
 
 class Trainer:
@@ -43,19 +44,20 @@ class Trainer:
         
         # Create a scheduler
         self.scheduler = lr_scheduler.StepLR(self.optimizer,
-                                             step_size=7,
+                                             step_size=5,
                                              gamma=0.1,
                                              verbose=True)
 
     def train_one_batch(self,
                        rays: torch.Tensor,
-                       labels: torch.Tensor):
+                       labels: torch.Tensor,
+                       epoch: int):
         
         # Move labels to device
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, depth_map, sparsity_loss, embs = self.model(rays)
+        chs_map, depth_map, sparsity_loss = self.model(rays)
 
         # Zero the gradient
         self.optimizer.zero_grad()
@@ -63,13 +65,18 @@ class Trainer:
         # Compute photometric loss on pixel estimate
         loss_on_colors = self.img2mse(chs_map, labels)
 
-        # TODO: Compute Total Variation Loss on position embeddings
+        # Compute Total Variation Loss on position embeddings
+        tv_loss = sum(total_variation_loss(self.model.embedder.embeddings[i],
+                                    hash_parameters["low_res"],
+                                    hash_parameters["high_res"],
+                                    i, hash_parameters["log2_hashmap_size"],
+                                    hash_parameters["n_levels"]) for i in range(hash_parameters["n_levels"]))
 
         # Combinate losses
-        loss = loss_on_colors 
-    
+        loss = loss_on_colors + optimizer_parameters["tot_var_weight"] * tv_loss + optimizer_parameters["sparsity_loss_weight"] * sparsity_loss
+
         # Backprop
         loss.backward()
         self.optimizer.step()
 
-        return loss
+        return loss, loss_on_colors, tv_loss, sparsity_loss

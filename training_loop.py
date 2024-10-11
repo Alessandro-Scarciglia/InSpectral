@@ -72,12 +72,15 @@ def main(folder_name: str):
         for niter, ray_batch in enumerate(dataloader):
 
             # Train one batch
-            loss_val, loss_rgb, loss_sigma = sat_node.trainer.train_one_batch(rays=ray_batch[:, :6],
-                                                        labels=ray_batch[:, 6:])
-            
+            loss, rgb_loss, tv_loss, sparsity_loss = sat_node.trainer.train_one_batch(rays=ray_batch[:, :6],
+                                                                                      labels=ray_batch[:, 6:],
+                                                                                      epoch=epoch)
+                            
             # Display loss values
             if VERB:
-                print(f"Epoch: {epoch} | # Iter: {niter} | Elapsed time (s): {(time.time()-t_start):.3f} | Loss: {loss_val.item():.5f} | Loss RGB: {loss_rgb:.5f} | Loss Sparsity: {loss_sigma:.5f}")
+                print(f"Epoch: {epoch} | # Iter: {niter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
+                      f"Photometric Loss: {rgb_loss.item():.5f} | TV Loss: {tv_loss.item():.5f} | Sparsity Loss: {sparsity_loss.item():.5f} | "
+                      f"Tot Loss: {loss.item():.5f}")
 
         # Test model on test set
         with torch.no_grad():
