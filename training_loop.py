@@ -14,6 +14,10 @@ import os
 import time
 
 
+# Fix random seed for testing
+torch.manual_seed(1234)
+
+
 # Training
 def main(folder_name: str):
     
@@ -41,9 +45,9 @@ def main(folder_name: str):
                 cv2.waitKey(10)
         
         # Save a test frame every N frames
-            if i % TEST_EVERY == 0:
-                sat_node.valid_set.append((c2w, frame))
-                valid_frames_cnt += 1
+        if i % TEST_EVERY == 0:
+            sat_node.valid_set.append((c2w, frame))
+            valid_frames_cnt += 1
 
     # Display acquisition output
     print(f"Training frames collected: {train_frames_cnt}")
@@ -87,8 +91,12 @@ def main(folder_name: str):
 
             # Create test folder
             path_to_chkpt = f"{folder_name}/epoch_{epoch}/"
+
             path_for_frames = f"{path_to_chkpt}/frames/"
             os.makedirs(path_for_frames)
+
+            path_for_depths = f"{path_to_chkpt}/depths/"
+            os.makedirs(path_for_depths)
             
             # Create metrics buffer
             test_psnr_vals = []
@@ -97,12 +105,14 @@ def main(folder_name: str):
             for j, (test_c2w, test_frame) in enumerate(sat_node.valid_set):
 
                 # Render frame and compute PSNR
-                test_rendering, _, _ = sat_node.render(c2w=test_c2w)
+                test_rendering, test_depth, _ = sat_node.render(c2w=test_c2w)
+                test_depth = test_depth.detach().cpu().numpy().reshape(sat_node.H, sat_node.W)
                 test_rendering = test_rendering.detach().cpu().numpy().reshape(sat_node.H, sat_node.W, sat_node.CH)
                 test_psnr_vals.append(psnr(test_frame, test_rendering))
 
-                # Store rendering
+                # Store rendering and depth map
                 cv2.imwrite(f"{path_for_frames}/{j}.jpg", test_rendering * 255)
+                cv2.imwrite(f"{path_for_depths}/{j}.jpg", test_depth * 255)
 
                 # Store checkpoint
                 checkpoint = {

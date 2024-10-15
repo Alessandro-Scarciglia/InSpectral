@@ -50,7 +50,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer, set input channel dimension.
             # Else, set the hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch
+                in_dim = self.input_ch + self.input_ch_views
             else:
                 in_dim = self.hidden_dim
 
@@ -118,7 +118,7 @@ class NeRFSmall(nn.Module):
                                              dim=-1)
 
         # Sigma estimation branch
-        out = input_pts
+        out = cam_rays
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
             out = F.relu(out, inplace=True)

@@ -14,7 +14,7 @@ from trainer import Trainer
 
 class SatNode:
     def __init__(self,
-                 roll_cfg: str,
+                 roll_cfgs: str,
                  datapath: str,
                  calibration_path: str,
                  resolution: int = 1024,
@@ -33,7 +33,7 @@ class SatNode:
         # Initialize measurements generator
         vsens = VirtualSensors(datapath=datapath,
                                resolution=resolution,
-                               roll_cfg=roll_cfg,
+                               roll_cfgs=roll_cfgs,
                                lin_drift=lin_drift,
                                ang_drift=ang_drift)
         self.measurements = vsens.get_measurement()
