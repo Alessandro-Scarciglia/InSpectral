@@ -113,11 +113,13 @@ class NeRFSmall(nn.Module):
         cam_rays = cam_rays.to(self.device)
         
         # Split origin
-        input_pts, input_views = torch.split(cam_rays,
+        _, input_views = torch.split(cam_rays,
                                              [self.input_ch, self.input_ch_views],
                                              dim=-1)
 
-        # Sigma estimation branch
+        # Sigma estimation branch: usually only geometric points (x, y, z) are necessary to estimate the
+        # volumetric density. Indeed, the volumetric density of a point should not be linked to the viewdir.
+        # However, including also viewdir in input, the PSNR improves by 1.5pt ca. at the first epoch. 
         out = cam_rays
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
@@ -125,9 +127,6 @@ class NeRFSmall(nn.Module):
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
-
-        # # TODO: Clamp sigma for keeping gradients
-        # sigma = torch.clamp(sigma, min=1e-3)
 
         # Color estimation branch
         out = torch.cat([input_views, geo_features], dim=-1)

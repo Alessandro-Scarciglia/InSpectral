@@ -4,10 +4,10 @@ import torch
 
 # Training parameters
 BATCH_SIZE = 32*32*16
-EPOCHS = 20
-SAMPLE_EVERY = 2 # 216 training images
-TEST_EVERY = 12  #  30 test images
-SCENE = 1.
+EPOCHS = 5
+SAMPLE_EVERY = 2 # (3 orbs 1080/5 = 216 | 2 orbs 720/3 = 250 | 1 orb 360/2 = 180)
+TEST_EVERY = 12  # (3 orbs 1080/36 = 30 | 2 orbs 720/36 = 20 | 1 orb 360/12 = 30)
+SCENE = 1.       # Set unitary for scaling scenes
 
 # Display frame during rendez-vous
 DISP = True
@@ -47,7 +47,7 @@ sampler_parameters = {
 sh_parameters = {
     "input_dim": 3,
     "degree": 4,
-    "out_dim": 16,
+    "out_dim": 4**2, # Always square of 'degree' 
 }
 
 
@@ -65,24 +65,24 @@ hash_parameters = {
 
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
-    "n_layers": 3,
+    "n_layers": 2,
     "hidden_dim": 64,
     "geo_feat_dim": 15,
-    "n_layers_color": 3,
+    "n_layers_color": 2,
     "hidden_dim_color": 64,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
-    "input_ch_views": 16,    
+    "input_ch_views": sh_parameters["out_dim"],    
     "out_ch": cfg_parameters["channels"],
 }
 
 
 # Parameter dictionary for training 
 optimizer_parameters = {
-    "lr": 0.01,
+    "lr": 0.005,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tot_var_weight": 1e-7,
-    "sparsity_loss_weight": 1e-10,
+    "sparsity_loss_weight": 1e-7,
     "decay_rate": 1e-1,
-    "decay_steps": 10
+    "decay_steps": 3
 }

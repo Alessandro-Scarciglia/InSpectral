@@ -68,16 +68,16 @@ class SHEncoder(nn.Module):
                              device=self.device)
         x, y, z = input.unbind(-1)
 
-        # First order
+        # First order: 1 element
         result[..., 0] = self.C0
 
-        # Second order
+        # Second order: 4 elements
         if self.degree > 1:
             result[..., 1] = -self.C1 * y
             result[..., 2] = self.C1 * z
             result[..., 3] = -self.C1 * x
 
-            # Third order
+            # Third order: 9 elements
             if self.degree > 2:
                 xx, yy, zz = x * x, y * y, z * z
                 xy, yz, xz = x * y, y * z, x * z
@@ -87,7 +87,7 @@ class SHEncoder(nn.Module):
                 result[..., 7] = self.C2[3] * xz
                 result[..., 8] = self.C2[4] * (xx - yy)
 
-                # Fourth order
+                # Fourth order: 16 elements
                 if self.degree > 3:
                     result[..., 9] = self.C3[0] * y * (3 * xx - yy)
                     result[..., 10] = self.C3[1] * xy * z
@@ -97,7 +97,7 @@ class SHEncoder(nn.Module):
                     result[..., 14] = self.C3[5] * z * (xx - yy)
                     result[..., 15] = self.C3[6] * x * (xx - 3 * yy)
 
-                    # Fifth order
+                    # Fifth order: 25 elements
                     if self.degree > 4:
                         result[..., 16] = self.C4[0] * xy * (xx - yy)
                         result[..., 17] = self.C4[1] * yz * (3 * xx - yy)
@@ -110,3 +110,4 @@ class SHEncoder(nn.Module):
                         result[..., 24] = self.C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
 
         return result
+    

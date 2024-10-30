@@ -1,0 +1,32 @@
+==========================
+NOTES || (Test a 5 epoche)
+==========================
+
+
+1) Includere origin+direction migliora l'output rispetto che all'origin soltanto (come di solito fa NeRF).
+Motivo ignoto, dato che la densità volumetrica dovrebbe essere solo dipendente dal punto spaziale (x, y, z).
+--> PSNR da 22.220 a 23.639. [provare con NeRF originale].
+
+2) 2.1) Ridurre da 64 a 32 i neuroni negli hidden layers della stima colore --> 23.701
+   2.2) Ridurre da 64 a 32 i neuroni negli hidden layers della stima sigma --> 23.658
+   2.3) Ridurre da 64 a 32 i neuroni negli hidden layers della stima colore e sigma --> 23.635
+
+3) Data la configurazione 1), aumentare il peso sulla sparsity porta effettivamente un miglioramento delle depths (fino a 1e-8).
+   Si potrebbe ottimizzare solo fotometricamente + TV Loss all'inizio. Poi fotometricamente + TV Loss + Sparsity (quando sparsity è già sufficientemente
+   alta) ed infine solo fotometricamente + Sparsity --> Ok, ma per alcune configurazioni la Sparsity collassa a prescindere.
+   [Cercare qualche activation function >=0 da sostituire a ReLU. Ad esempio log(.)]
+
+4) Il training fallisce quando si mescolano più orbite. Le camera cfgs che condividono l'origine generano renderings sovrapposti.
+   --> la viewdirection che si genera, così come il suo encoding in SH, potrebbe essere agnostico allo yaw (elevation, azimuth)
+
+5) 5.1) Aumentare a 128 le hidden dimensions del NeRF porta la Sparsity al minimo e il modello collassa. --> Sparsity collassa
+   5.2) Likewise, aumentare a 128 solo il layer di stima volumetrica. --> Sparsity collassa
+   5.3) Aumentare a 128 solo il layer della stima colore --> 23.724
+
+6) Per migliorare la depth occorre implementare in qualche modo la early ray termination, o simile. --> Inefficiente in Python.
+
+7) 7.1) Dando alla Sparsity peso 1e-10 --> 23.639 
+   7.2) Dando alla Sparsity peso 1e-9  --> 23.620 
+   7.3) Dando alla Sparsity peso 1e-8  --> 23.639
+   7.4) Dando alla Sparsity peso 1e-7  --> Sparsity collassa.
+
