@@ -46,7 +46,7 @@ class NeRFSmall(nn.Module):
 
         # Build layer by layer
         for layer in range(self.n_layers):
-            
+        
             # If it is the first layer, set input channel dimension.
             # Else, set the hidden dimension.
             if layer == 0:
@@ -113,7 +113,7 @@ class NeRFSmall(nn.Module):
         cam_rays = cam_rays.to(self.device)
         
         # Split origin
-        _, input_views = torch.split(cam_rays,
+        input_pts, input_views = torch.split(cam_rays,
                                              [self.input_ch, self.input_ch_views],
                                              dim=-1)
 
@@ -127,7 +127,7 @@ class NeRFSmall(nn.Module):
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
-
+        
         # Color estimation branch
         out = torch.cat([input_views, geo_features], dim=-1)
         for layer in range(self.n_layers_color):
@@ -142,7 +142,7 @@ class NeRFSmall(nn.Module):
         outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
         
         return outputs
-    
+
 
 # Usage Test
 if __name__ == "__main__":

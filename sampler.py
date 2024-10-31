@@ -2,6 +2,12 @@
 import torch
 import torch.nn as nn
 
+# Import for testing
+from rays_generator import RaysGenerator
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 class Sampler(nn.Module):
     def __init__(self,
@@ -51,25 +57,3 @@ class Sampler(nn.Module):
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
         return pts, zvals
-
-
-
-# Run for usage example
-if __name__ == "__main__":
-
-    # Define device
-    dev = "cuda"
-    
-    # Istantiate the Sampler object
-    sampler = Sampler(n_samples=10, near=0., far=5., device=dev)
-
-    # Dummy input
-    rays_o = torch.tensor([[0., 0., 0.]])
-    rays_d = torch.tensor([[1., 1., 1.]])
-    rays_d /= torch.norm(rays_d, dim=-1)
-
-    # Test inference
-    samples = sampler(rays_o, rays_d)
-
-    # No params
-    print(samples[1].device)

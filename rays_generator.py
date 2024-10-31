@@ -36,7 +36,6 @@ class RaysGenerator(nn.Module):
         i, j = it.t(), jt.t()
 
         # Compute directions
-        # TODO: check camera frame consistency
         dirs = torch.stack([(i - self.K[0][2]) / self.K[0][0],
                             (j - self.K[1][2]) / self.K[1][1],
                             torch.ones_like(i)],
@@ -65,27 +64,3 @@ class RaysGenerator(nn.Module):
         out = torch.concatenate([rays_o, rays_d], dim=-1)
     
         return out
-
-
-# Run for usage example
-if __name__ == "__main__":
-
-    # Generate inputs
-    H, W, CH = 32, 32, 3
-    
-    # Load calibration
-    with open("calibration/calibration.json", "r") as fopen:
-        K = torch.tensor(json.load(fopen)["mtx"]).reshape(3, 3)
-
-    # Generaterandom c2w and add a translation
-    c2w = torch.eye(4)
-    c2w[:3, -1] = torch.tensor([0., 0., 10.])
-    
-    # Istantiate the model object
-    prep = RaysGenerator(H=H, W=W, CH=CH, K=K)
-
-    # Generate rays
-    output = prep(c2w)
-
-    # Show
-    print(output.shape)

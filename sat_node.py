@@ -35,7 +35,10 @@ class SatNode:
                                resolution=resolution,
                                roll_cfgs=roll_cfgs,
                                lin_drift=lin_drift,
-                               ang_drift=ang_drift)
+                               ang_drift=ang_drift,
+                               noise_mean=0.,
+                               noise_std=0.0)
+        
         self.measurements = vsens.get_measurement()
 
         # Define the image size
@@ -52,6 +55,7 @@ class SatNode:
         # Create NeRF Renderer
         self.renderer = NeuralRenderer(**sampler_parameters,
                                        **sh_parameters,
+                                       **posenc_parameters,
                                        **hash_parameters,
                                        **nerf_parameters,
                                        device=device)
@@ -64,7 +68,7 @@ class SatNode:
     def get_measurement(self):
         return self.measurements
     
-
+    
     def render(self, c2w: torch.Tensor):
 
         # Get rays from pose

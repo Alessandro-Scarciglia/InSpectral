@@ -4,7 +4,7 @@ import torch
 
 # Training parameters
 BATCH_SIZE = 32*32*16
-EPOCHS = 5
+EPOCHS = 10
 SAMPLE_EVERY = 2 # (3 orbs 1080/5 = 216 | 2 orbs 720/3 = 250 | 1 orb 360/2 = 180)
 TEST_EVERY = 12  # (3 orbs 1080/36 = 30 | 2 orbs 720/36 = 20 | 1 orb 360/12 = 30)
 SCENE = 1.       # Set unitary for scaling scenes
@@ -15,10 +15,13 @@ DISP = True
 # Verbose during training
 VERB = True
 
+# Pics to jump
+JUMP = []#["358", "359", "000", "001", "002"] + ["177", "178", "179", "180", "181"]
+
 
 # General sat node setup
 cfg_parameters = {
-    "roll_cfgs": ["roll_0"],
+    "roll_cfgs": ["roll_0", "roll_120"],
     "resolution": 256,
     "channels": 1,
     "datapath": "data/transforms.json",
@@ -51,6 +54,12 @@ sh_parameters = {
 }
 
 
+# Parameter dictionary for positional embedder
+posenc_parameters = {
+    "n_freq": 10
+}
+
+
 # Parameter dictionary for hash embedder
 hash_parameters = {
     "bbox": (torch.tensor([-SCENE, -SCENE, -SCENE]),
@@ -65,13 +74,15 @@ hash_parameters = {
 
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
-    "n_layers": 2,
+    "n_layers": 3,
     "hidden_dim": 64,
-    "geo_feat_dim": 15,
+    "geo_feat_dim": 10,
     "n_layers_color": 2,
     "hidden_dim_color": 64,
+    #"input_ch": posenc_parameters["n_freq"] * 6 + 3,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
-    "input_ch_views": sh_parameters["out_dim"],    
+    #"input_ch_views": posenc_parameters["n_freq"] * 6 + 3,
+    "input_ch_views": sh_parameters["out_dim"],
     "out_ch": cfg_parameters["channels"],
 }
 
@@ -82,7 +93,7 @@ optimizer_parameters = {
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tot_var_weight": 1e-7,
-    "sparsity_loss_weight": 1e-7,
+    "sparsity_loss_weight": 1e-9,
     "decay_rate": 1e-1,
-    "decay_steps": 3
+    "decay_steps": 7
 }

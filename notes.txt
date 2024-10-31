@@ -17,16 +17,27 @@ Motivo ignoto, dato che la densità volumetrica dovrebbe essere solo dipendente 
    [Cercare qualche activation function >=0 da sostituire a ReLU. Ad esempio log(.)]
 
 4) Il training fallisce quando si mescolano più orbite. Le camera cfgs che condividono l'origine generano renderings sovrapposti.
-   --> la viewdirection che si genera, così come il suo encoding in SH, potrebbe essere agnostico allo yaw (elevation, azimuth)
+   > la viewdirection che si genera, così come il suo encoding in SH, potrebbe essere agnostico allo yaw (elevation, azimuth) FALSO
+   > il modello non è in grado di distinguere input troppo simili viewdirection
+      >> infatti, aggiungendo rumore alla c2w non ho più sovrapposizione, tuttavia la qualità di rendering peggiora.
+      >> Aumentando +1 i layers della stima volumetrica --> Non succede nulla
+      >> TODO: trovare un modo per fondere feature di posizione e orientamento prima o dopo il sigma-estimator! Ad esempio, banale,
+         alternando i componenti dei vettori in un unico vettore (?) cafonata, ma chissà.
 
 5) 5.1) Aumentare a 128 le hidden dimensions del NeRF porta la Sparsity al minimo e il modello collassa. --> Sparsity collassa
    5.2) Likewise, aumentare a 128 solo il layer di stima volumetrica. --> Sparsity collassa
    5.3) Aumentare a 128 solo il layer della stima colore --> 23.724
 
 6) Per migliorare la depth occorre implementare in qualche modo la early ray termination, o simile. --> Inefficiente in Python.
+   --> TODO: Necessaria 100% per lavorare con 3D intermedio! Implementarla con somma progressiva, non ottimizza tempo ma output, ed è
+      comunque meglio del ciclo for per controllare un termine alla volta.
 
 7) 7.1) Dando alla Sparsity peso 1e-10 --> 23.639 
    7.2) Dando alla Sparsity peso 1e-9  --> 23.620 
    7.3) Dando alla Sparsity peso 1e-8  --> 23.639
-   7.4) Dando alla Sparsity peso 1e-7  --> Sparsity collassa.
+   7.4) Dando alla Sparsity peso 1e-7  --> Sparsity collassa.ù
+
+
+8) L'ombra non è statica. Come è possibile che stessa vista a 0° e 180° - variando solo di uno yaw ogni 120° - veda una volta 
+   ombra e una volta luce?... porc...
 

@@ -6,6 +6,7 @@ import torch.nn as nn
 from sampler import Sampler
 from embedder import HashEmbedder
 from sh_encoder import SHEncoder
+from positional_encoder import PositionalEmbedder
 from small_nerf import NeRFSmall
 from integrator import Integrator
 
@@ -21,6 +22,7 @@ class NeuralRenderer(nn.Module):
     def __init__(self,
                  n_ray_samples: int, near: float, far: float,
                  bbox: tuple, n_levels: int, n_features_per_level: int, log2_hashmap_size: int, low_res: int, high_res: int,
+                 n_freq: int,
                  input_dim: int, degree: int, out_dim: int,
                  n_layers: int, hidden_dim: int, geo_feat_dim: int, n_layers_color: int, hidden_dim_color: int, input_ch: int, input_ch_views: int, out_ch: int,
                  device: str = 'cpu'):
@@ -45,11 +47,13 @@ class NeuralRenderer(nn.Module):
                                      high_resolution=high_res,
                                      device=device)
         
-        # Generate encoding for view directions
+        # Generate encoding for view directions (SH or Positional Encoding)
         self.sh_encoder = SHEncoder(input_dim=input_dim,
                                     degree=degree,
                                     out_dim=out_dim,
                                     device=device)
+        
+        self.pos_encoder = PositionalEmbedder(n_freq=n_freq)
         
         # Infer the density and channel values for each sample along a ray
         self.nerf = NeRFSmall(n_layers=n_layers,
@@ -80,6 +84,21 @@ class NeuralRenderer(nn.Module):
             samples = samples.to(self.device)
             zvals = zvals.to(self.device)
 
+            # points_reshaped = samples.reshape(-1, 3)
+            # x = points_reshaped[:, 0].numpy()
+            # y = points_reshaped[:, 1].numpy()
+            # z = points_reshaped[:, 2].numpy()
+            # fig = plt.figure()
+            # ax = fig.add_subplot(111, projection='3d')
+            # ax.scatter(x, y, z, s=1, c=z, cmap='viridis', marker='o', alpha=0.7)
+            # ax.scatter(0, 0, 0, color='red', s=100)  # s is the size of the dot
+
+            # ax.set_xlabel("X")
+            # ax.set_ylabel("Y")
+            # ax.set_zlabel("Z")
+            # ax.set_title("Scatter Plot 3D dei punti campionati")
+            # plt.axis("equal")
+
             # Concatenate points with view direction and kill one dimension
             viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
             viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
@@ -88,7 +107,9 @@ class NeuralRenderer(nn.Module):
 
         # Hash-encode the samples coordinates and SH-encode the view directions
         enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
+        #enc_points = self.pos_encoder(rays_and_viewdirs[..., :3])
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
+        #enc_dirs = self.pos_encoder(rays_and_viewdirs[..., 3:6])
         
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1).to(self.device)
@@ -112,14 +133,14 @@ if __name__ == "__main__":
     # Retrieve intrinsic calibration matrix K
     with open('calibration/calibration.json', "r") as fopen:
         calib = np.array(json.load(fopen)["mtx"]).reshape(3, 3)
-        calib[:2, :2] /=  16.
+        calib[:2, :3] /=  1024./cfg_parameters["resolution"]
 
     raygen = RaysGenerator(**rays_parameters, K=calib)
     model = NeuralRenderer(**sampler_parameters,
                             **sh_parameters,
                             **hash_parameters,
                             **nerf_parameters,
-                            device="cuda:0")
+                            device="cpu")
     
     c2w1 = torch.tensor([[
                 6.123233995736766e-17,
@@ -171,6 +192,8 @@ if __name__ == "__main__":
                 1.0
             ]], dtype=torch.float32)
     
-    rays = raygen(c2w2).reshape(-1, 6)
+    rays1 = raygen(c2w1).reshape(-1, 6)
+    rays2 = raygen(c2w2).reshape(-1, 6)
     
-    rgb, depth, _ = model(rays)
+    rgb, depth, _ = model(rays1)
+    rgb, depth, _ = model(rays2)

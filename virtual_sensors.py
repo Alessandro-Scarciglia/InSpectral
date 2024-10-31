@@ -3,6 +3,7 @@ import cv2
 import json
 import torch
 import numpy as np
+from parameters import *
 
 
 class VirtualSensors:
@@ -12,6 +13,8 @@ class VirtualSensors:
                  roll_cfgs: list = ["roll_0"],
                  lin_drift: float = 0.,
                  ang_drift: float = 0.,
+                 noise_mean: float = 0.,
+                 noise_std: float = 1.,
                  is_rgb: bool = False):
         
         # Attributes
@@ -20,6 +23,8 @@ class VirtualSensors:
         self.roll_cfgs = roll_cfgs
         self.lin_drift = lin_drift
         self.ang_drift = ang_drift
+        self.noise_mean = noise_mean
+        self.noise_std = noise_std
         self.is_rgb = is_rgb
         
 
@@ -50,6 +55,10 @@ class VirtualSensors:
             # Loop through every item
             for imagepath, c2w in orbit.items():
                 
+                # Jump on similar positions
+                if imagepath.split(".")[-2] in JUMP:
+                    continue
+
                 # Retrieve image
                 frame = cv2.imread(imagepath)
                 resized_frame = cv2.resize(frame, (self.res, self.res))
@@ -61,10 +70,15 @@ class VirtualSensors:
                 else:
                     out_frame = resized_frame
 
-                # TODO: add optional drift
                 # Change variable format in torch.tensor
                 out_frame = torch.tensor(out_frame) / 255.
                 c2w = torch.tensor(c2w)
+
+                # Add noise in a [-noise_mult, noise_mult] range
+                noise_src = self.noise_mean + self.noise_std * torch.randn(3) 
+                c2w[:3, -1] += noise_src
+                
+                # Normalization of the scene (TODO: this shall be done in post-processing)
                 c2w[:3, -1] /= 2.
 
                 yield c2w, out_frame
