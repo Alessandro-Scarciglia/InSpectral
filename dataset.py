@@ -7,6 +7,7 @@ Each sample from a torch dataset return an array made of:
 # Import modules
 from torch.utils.data import Dataset
 import numpy as np
+import torch
 
 
 # Dataset class definition
@@ -51,7 +52,7 @@ class InspectralData(Dataset):
         elif self.mode == 'validation':
             sample = self.validation_set[index]
         
-        return sample
+        return torch.tensor(sample, dtype=torch.float32)
 
 
 # Test for usage

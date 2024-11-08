@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/rgb_False_size_256.npy",
+    "data_path": "data/preprocessed_data/rgb_False_res_3_size_256.npy",
     "valid_set_ratio": 0.2
 }
 
@@ -14,6 +14,7 @@ cfg_parameters = {
     "roll_cfgs": ["roll_0", "roll_120", "roll_240"],
     "resolution": int(dataset_parameters["data_path"].split(".")[0].split("_")[-1]),
     "channels": 1,
+    "device": "cuda:0"
 }
 
 
@@ -60,10 +61,15 @@ sh_parameters = {
 }
 
 
+# Appearance embedding parameters
+app_parameters = {
+    "num_embeddings": len(cfg_parameters["roll_cfgs"]),
+    "embedding_dim": 7
+}
+
+
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
-    "num_embeddings": len(cfg_parameters["roll_cfgs"]),
-    "embedding_dim": 16,
     "n_layers": 3,
     "hidden_dim": 64,
     "geo_feat_dim": 10,
@@ -91,8 +97,7 @@ training_parameters = {
     "decay_rate": 1e-1,
     "decay_steps": 7,
     "test_trajectories": [
-        "data/test_trajectories/circular_roll29_pitch45_yaw59_samples100.json",
-        "data/test_trajectories/spiral_samples100.json"
+        "data/test_trajectories/nominal.json"
     ],
     "verbose": True
 }

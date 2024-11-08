@@ -44,9 +44,10 @@ def main(folder_name: str):
     # Instantiate the model
     model = NeuralRenderer(
         **sampler_parameters,
-        **sampler_parameters,
+        **hash_parameters,
         **posenc_parameters,
         **sh_parameters,
+        **app_parameters,
         **nerf_parameters,
         device="cuda"
     )
@@ -93,9 +94,13 @@ def main(folder_name: str):
         # Iterate through rays samples of the training set
         for n_iter, ray_batch in enumerate(training_dataloader):
 
+            # Bring batch to target device
+            ray_batch = ray_batch.to(model.device)
+
             # Train one batch
             losses = trainer_agent.train_one_batch(
-                rays=ray_batch[:, :7],
+                rays=ray_batch[:, :6],
+                app_code=ray_batch[:, 6].int(),
                 labels=ray_batch[:, 7:],
                 epoch=epoch
             )
@@ -119,9 +124,13 @@ def main(folder_name: str):
             # Loop through the validation set
             for m_iter, ray_batch_val in enumerate(validation_dataloader):
 
+                # Bring batch to target device
+                ray_batch_val = ray_batch_val.to(model.device)
+
                 # Process a batch and compute PSNR
                 out = trainer_agent.valid_one_batch(
-                    rays=ray_batch_val[:, :7],
+                    rays=ray_batch_val[:, :6],
+                    app_code=ray_batch_val[:, 6].int(),
                     labels=ray_batch_val[:, 7:],
                 )
 
@@ -139,16 +148,17 @@ def main(folder_name: str):
             checkpoint = {
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": model.trainer.optimizer.state_dict(),
-                "psnr": torch.mean(valid_psnr_set).item()
+                "optimizer_state_dict": trainer_agent.optimizer.state_dict(),
+                "psnr": np.mean(valid_psnr_set)
             }
+            
             epoch_folder = os.path.join(folder_name, f"epoch_{epoch}")
             os.mkdir(epoch_folder)
             torch.save(checkpoint, os.path.join(epoch_folder, "chkpt.pt"))
             
             # Print metrics
             if training_parameters["verbose"]:
-                print(f"Validation after epoch {epoch} | PSNR: {torch.mean(valid_psnr_set).item():.3f}\n\n")
+                print(f"Validation after epoch {epoch} | PSNR: {np.mean(valid_psnr_set):.3f}\n\n")
 
             # Test trajectories
             for trajectory in training_parameters["test_trajectories"]:
@@ -176,20 +186,25 @@ def main(folder_name: str):
                     c2w_wp = waypoints[str(wp)]
                     c2w_wp = torch.tensor(c2w_wp)
 
-                    # Produce rays
-                    test_rays = ray_gen(c2w_wp)
+                    # Produce rays and code
+                    test_rays = ray_gen(c2w_wp).reshape(-1, 6)
+                    test_app_code = torch.zeros(size=(cfg_parameters["resolution"] * cfg_parameters["resolution"],))
+
+                    # Bring data to target device
+                    test_rays = test_rays.to(model.device)
+                    test_app_code = test_app_code.to(model.device)
 
                     # Fix configuration code to 0 and produce images
                     ch_map, dp_map, _ = model(
                         rays=test_rays,
-                        app_code=0
+                        app_code=test_app_code.int()
                     )
 
                     # Rebuild images and store in the epoch folder
                     frame = ch_map.detach().cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], cfg_parameters["channels"])
                     depth = dp_map.detach().cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], 1)
-                    cv2.imwrite(os.path.join(frames_folder, f"{wp}.png"), frame)
-                    cv2.imwrite(os.path.join(depths_folder, f"{wp}.png"), depth)
+                    cv2.imwrite(os.path.join(frames_folder, f"{wp}.png"), frame * 255)
+                    cv2.imwrite(os.path.join(depths_folder, f"{wp}.png"), depth * 255)
 
 
         # Call scheduler at the end of each epoch

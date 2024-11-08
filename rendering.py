@@ -51,9 +51,11 @@ class NeuralRenderer(nn.Module):
                  degree: int,
                  out_dim: int,
 
-                 # NeRF args
+                 # Appearance Embedder args
                  num_embeddings: int,
                  embedding_dim: int,
+
+                 # NeRF args
                  n_layers: int,
                  hidden_dim: int,
                  geo_feat_dim: int,
@@ -94,10 +96,13 @@ class NeuralRenderer(nn.Module):
                                     device=device)
         
         self.pos_encoder = PositionalEmbedder(n_freq=n_freq)
+
+        # Generate embeddings for appearance code
+        self.app_embedder = nn.Embedding(num_embeddings=num_embeddings,
+                                         embedding_dim=embedding_dim).to(device)
         
         # Infer the density and channel values for each sample along a ray
-        self.nerf = NeRFSmall(num_embeddings=num_embeddings,
-                              embedding_dim=embedding_dim,
+        self.nerf = NeRFSmall(embedding_dim=embedding_dim,
                               n_layers=n_layers,
                               hidden_dim=hidden_dim,
                               geo_feat_dim=geo_feat_dim,
@@ -115,31 +120,28 @@ class NeuralRenderer(nn.Module):
 
     def forward(
             self,
-            rays: torch.Tensor,
-            app_code: int
+            rays: torch.TensorType,
+            app_code: torch.TensorType
     ):
-
+    
         # Bring rays to target device
-        cam_rays = rays[:, :6].to(self.device)
-        app_code = rays[:, 6].int().to(self.device)
+        rays = rays.to(self.device)
+        app_embs = self.app_embedder(app_code).to(self.device)
 
-        # Preprocessing steps are carried out without retaining the gradient
-        with torch.no_grad():
+        # Produce samples along each ray produced from camera
+        samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
+        samples = samples.to(self.device)
+        zvals = zvals.to(self.device)
 
-            # Produce samples along each ray produced from camera
-            samples, zvals = self.sampler(cam_rays[..., :3], cam_rays[..., 3:6])
-            samples = samples.to(self.device)
-            zvals = zvals.to(self.device)
+        # Concatenate points with view direction and kill one dimension
+        viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
+        app_embs = app_embs.unsqueeze(1).to(self.device)
 
-            # Concatenate points with view direction and kill one dimension
-            viewdirs = cam_rays[..., 3:6].unsqueeze(1).to(self.device)
-            app_code = app_code[..., 6].unsqueeze(1).to(self.device)
+        viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
+        app_embs = app_embs.expand(-1, samples.shape[1], -1)
 
-            viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
-            app_code = app_code.expand(-1, samples.shape[1], -1)
-
-            rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
-            rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
+        rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
+        rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
 
         # Hash-encode the samples coordinates and SH-encode the view directions
         enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
@@ -149,7 +151,8 @@ class NeuralRenderer(nn.Module):
         
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1).to(self.device)
-        output = self.nerf(input_vector, app_code)
+        app_embs = app_embs.reshape(-1, app_embs.shape[-1])
+        output = self.nerf(input_vector, app_embs)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
         # and reshape as [points, samples, channels]

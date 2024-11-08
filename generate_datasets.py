@@ -9,10 +9,11 @@ The script read all the pictures and create a bunch of samples made like [ray_o,
 '''
 
 # Parameters
+DEG_RES = 10
 RGB = False
 SRC_IMG_CALIB = 1024
 DST_IMG_SIZE = 256
-DATASET_NAME = f"rgb_{RGB}_size_{DST_IMG_SIZE}.npy"
+DATASET_NAME = f"rgb_{RGB}_res_{DEG_RES}_size_{DST_IMG_SIZE}.npy"
 
 # Paths
 ROOT = "data/"
@@ -68,7 +69,11 @@ for cfg in cfgs:
 
     # Iterate through every image
     print(f"Config: {cfg}")
-    for img_path in tqdm(imgs_list):
+    for i, img_path in tqdm(enumerate(imgs_list)):
+
+        # Take frame every n_frame
+        if i % DEG_RES:
+            continue
 
         # Load the image
         if RGB:
@@ -100,6 +105,7 @@ for cfg in cfgs:
     
 # In the end, transform the dataset in a numpy array and store it
 dataset = np.array(dataset)
+print(f"Taken {len(dataset) / (DST_IMG_SIZE**2)} frames.")
 np.random.shuffle(dataset)
 np.save(DATASET_DST, dataset)
 

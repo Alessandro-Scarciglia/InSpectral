@@ -23,7 +23,7 @@ class Trainer:
             lr: float = 0.001,
             betas: tuple = (0.9, 0.999),
             eps: float = 1e-8,
-            tot_var_weight: float = 1e-6,
+            tv_loss_weight: float = 1e-6,
             sparsity_loss_weight: float = 1e-10,
             decay_rate: float = 1e-1,
             decay_steps: int = 1000
@@ -34,7 +34,7 @@ class Trainer:
         self.lr = lr
         self.betas = betas
         self.eps = eps
-        self.tot_var_w = tot_var_weight
+        self.tot_var_w = tv_loss_weight
         self.sparsity_loss_w = sparsity_loss_weight
         self.decay_rate = decay_rate
         self.decay_steps = decay_steps
@@ -59,8 +59,9 @@ class Trainer:
 
     def train_one_batch(
             self,
-            rays: torch.Tensor,
-            labels: torch.Tensor,
+            rays: torch.TensorType,
+            app_code: torch.TensorType,
+            labels: torch.TensorType,
             epoch: int
     ):
         
@@ -68,7 +69,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays)
+        chs_map, _, loss_sparsity = self.model(rays, app_code)
 
         # Zero the gradient
         self.optimizer.zero_grad()
@@ -105,6 +106,7 @@ class Trainer:
     def valid_one_batch(
             self,
             rays: torch.Tensor,
+            app_code: int,
             labels: torch.Tensor
     ):
         
@@ -112,7 +114,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays)
+        chs_map, _, loss_sparsity = self.model(rays, app_code)
 
         # Compute photometric loss on pixel estimate
         loss_photom = self.img2mse(chs_map, labels)
