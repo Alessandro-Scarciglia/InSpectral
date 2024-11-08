@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 
 class NeRFSmall(nn.Module):
     def __init__(self,
+                 num_embeddings: int = 3,
+                 embedding_dim: int = 16,
                  n_layers: int = 3,
                  hidden_dim: int = 64,
                  geo_feat_dim: int = 15,
@@ -20,6 +22,8 @@ class NeRFSmall(nn.Module):
 
         # Attributes
         self.device = torch.device(device)
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
         self.n_layers = n_layers
@@ -28,6 +32,10 @@ class NeRFSmall(nn.Module):
         self.n_layers_color = n_layers_color
         self.hidden_dim_color = hidden_dim_color
         self.out_ch = out_ch
+
+        # Generate embeddings for light conditions
+        self.app_embs = nn.Embedding(num_embeddings=num_embeddings,
+                                     embedding_dim=embedding_dim)
 
         # Build sigma network
         self.sigma_net = self.build_sigma_net()
@@ -50,7 +58,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer, set input channel dimension.
             # Else, set the hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch + self.input_ch_views
+                in_dim = self.input_ch
             else:
                 in_dim = self.hidden_dim
 
@@ -84,7 +92,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension
             # plus the SH encoding dimension. Else, set it to hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim
+                in_dim = self.input_ch_views + self.geo_feat_dim + self.embedding_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -104,32 +112,35 @@ class NeRFSmall(nn.Module):
     
 
     def forward(self,
-                cam_rays: torch.Tensor):
+                cam_rays: torch.TensorType,
+                app_code: torch.TensorType):
         '''
         Inference method.
         '''
 
         # Bring rays to target device
         cam_rays = cam_rays.to(self.device)
+        app_code = app_code.to(self.device)
         
         # Split origin
-        input_pts, input_views = torch.split(cam_rays,
-                                             [self.input_ch, self.input_ch_views],
-                                             dim=-1)
-
+        input_pts, input_views = torch.split(cam_rays, [self.input_ch, self.input_ch_views], dim=-1)
+        
         # Sigma estimation branch: usually only geometric points (x, y, z) are necessary to estimate the
         # volumetric density. Indeed, the volumetric density of a point should not be linked to the viewdir.
         # However, including also viewdir in input, the PSNR improves by 1.5pt ca. at the first epoch. 
-        out = cam_rays
+        out = input_pts
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
             out = F.relu(out, inplace=True)
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
+        embs = self.app_embs(app_code)
         
         # Color estimation branch
-        out = torch.cat([input_views, geo_features], dim=-1)
+        print(input_pts.shape, geo_features.shape, embs.shape)
+        exit()
+        out = torch.cat([input_views, geo_features, embs], dim=-1)
         for layer in range(self.n_layers_color):
             out = self.color_net[layer](out)
 
@@ -144,6 +155,7 @@ class NeRFSmall(nn.Module):
         return outputs
 
 
+
 # Usage Test
 if __name__ == "__main__":
     
@@ -151,9 +163,10 @@ if __name__ == "__main__":
     model = NeRFSmall(device="cuda").to("cuda")
 
     # Define ad dummy input
-    dummy_input = torch.rand((100, 6))
+    n_samples = 100
+    dummy_rays = torch.rand((n_samples, 6))
+    dummy_app = torch.randint(low=0, high=3, size=(n_samples,))
 
     # Try inference and test input/output dimension
-    out = model(dummy_input)
-    print(dummy_input.shape, out.shape, out.device)
-    
+    out = model(dummy_rays, dummy_app)
+    print(out.shape)

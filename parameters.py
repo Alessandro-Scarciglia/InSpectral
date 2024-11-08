@@ -2,31 +2,18 @@
 import torch
 
 
-# Training parameters
-BATCH_SIZE = 32*32*16
-EPOCHS = 10
-SAMPLE_EVERY = 2 # (3 orbs 1080/5 = 216 | 2 orbs 720/3 = 250 | 1 orb 360/2 = 180)
-TEST_EVERY = 12  # (3 orbs 1080/36 = 30 | 2 orbs 720/36 = 20 | 1 orb 360/12 = 30)
-SCENE = 1.       # Set unitary for scaling scenes
-
-# Display frame during rendez-vous
-DISP = True
-
-# Verbose during training
-VERB = True
-
-# Pics to jump
-JUMP = []#["358", "359", "000", "001", "002"] + ["177", "178", "179", "180", "181"]
+# Dataset parameters
+dataset_parameters = {
+    "data_path": "data/preprocessed_data/rgb_False_size_256.npy",
+    "valid_set_ratio": 0.2
+}
 
 
-# General sat node setup
+# General setup
 cfg_parameters = {
-    "roll_cfgs": ["roll_0", "roll_120"],
-    "resolution": 256,
+    "roll_cfgs": ["roll_0", "roll_120", "roll_240"],
+    "resolution": int(dataset_parameters["data_path"].split(".")[0].split("_")[-1]),
     "channels": 1,
-    "datapath": "data/transforms.json",
-    "calibration_path": "calibration/calibration.json",
-    "device": "cuda:0"
 }
 
 
@@ -39,24 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
+SCENE = 1.0
 sampler_parameters = {
     "n_ray_samples": 64,
     "near": 0.,
     "far": SCENE * 1.73 # Diagonal of the scene cube
-}
-
-
-# Parameter dictionary for sh embedder
-sh_parameters = {
-    "input_dim": 3,
-    "degree": 4,
-    "out_dim": 4**2, # Always square of 'degree' 
-}
-
-
-# Parameter dictionary for positional embedder
-posenc_parameters = {
-    "n_freq": 10
 }
 
 
@@ -69,11 +43,27 @@ hash_parameters = {
     "log2_hashmap_size": 19,
     "low_res": 16,
     "high_res": 512,
-}           
+} 
+
+
+# Parameter dictionary for positional embedder
+posenc_parameters = {
+    "n_freq": 10
+}
+
+
+# Parameter dictionary for sh embedder
+sh_parameters = {
+    "input_dim": 3,
+    "degree": 4,
+    "out_dim": 4**2, # Always square of 'degree' 
+}
 
 
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
+    "num_embeddings": len(cfg_parameters["roll_cfgs"]),
+    "embedding_dim": 16,
     "n_layers": 3,
     "hidden_dim": 64,
     "geo_feat_dim": 10,
@@ -88,12 +78,21 @@ nerf_parameters = {
 
 
 # Parameter dictionary for training 
-optimizer_parameters = {
+training_parameters = {
+    "training_batch": 32*32*16,
+    "validation_batch": 32*32*16,
+    "epochs": 10,
     "lr": 0.005,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tot_var_weight": 1e-7,
+    "tv_loss_weight": 1e-7,
+    "stop_tv_epoch": 5,
     "sparsity_loss_weight": 1e-9,
     "decay_rate": 1e-1,
-    "decay_steps": 7
+    "decay_steps": 7,
+    "test_trajectories": [
+        "data/test_trajectories/circular_roll29_pitch45_yaw59_samples100.json",
+        "data/test_trajectories/spiral_samples100.json"
+    ],
+    "verbose": True
 }

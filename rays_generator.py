@@ -2,8 +2,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-import json
-import matplotlib.pyplot as plt
 
 
 class RaysGenerator(nn.Module):
@@ -32,7 +30,7 @@ class RaysGenerator(nn.Module):
         # Generate the meshgrid of all pixels on the image plane
         i_span = torch.linspace(0, self.W - 1, self.W)
         j_span = torch.linspace(0, self.H - 1, self.H)
-        it, jt = torch.meshgrid(i_span, j_span)
+        it, jt = torch.meshgrid(i_span, j_span, indexing='ij')
         i, j = it.t(), jt.t()
 
         # Compute directions

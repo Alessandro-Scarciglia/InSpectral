@@ -22,7 +22,7 @@ Motivo ignoto, dato che la densità volumetrica dovrebbe essere solo dipendente 
       >> infatti, aggiungendo rumore alla c2w non ho più sovrapposizione, tuttavia la qualità di rendering peggiora.
       >> Aumentando +1 i layers della stima volumetrica --> Non succede nulla
       >> TODO: trovare un modo per fondere feature di posizione e orientamento prima o dopo il sigma-estimator! Ad esempio, banale,
-         alternando i componenti dei vettori in un unico vettore (?) cafonata, ma chissà.
+         alternando i componenti dei vettori in un unico vettore (?) cafonata, ma chissà. --> Latent Space Appearance (NeRF-W)
 
 5) 5.1) Aumentare a 128 le hidden dimensions del NeRF porta la Sparsity al minimo e il modello collassa. --> Sparsity collassa
    5.2) Likewise, aumentare a 128 solo il layer di stima volumetrica. --> Sparsity collassa
@@ -34,10 +34,9 @@ Motivo ignoto, dato che la densità volumetrica dovrebbe essere solo dipendente 
 
 7) 7.1) Dando alla Sparsity peso 1e-10 --> 23.639 
    7.2) Dando alla Sparsity peso 1e-9  --> 23.620 
-   7.3) Dando alla Sparsity peso 1e-8  --> 23.639
-   7.4) Dando alla Sparsity peso 1e-7  --> Sparsity collassa.ù
+   7.3) Dando alla Sparsity peso 1e-8  --> 23.639 
+   7.4) Dando alla Sparsity peso 1e-7  --> Sparsity collassa.
 
 
 8) L'ombra non è statica. Come è possibile che stessa vista a 0° e 180° - variando solo di uno yaw ogni 120° - veda una volta 
    ombra e una volta luce?... porc...
-
