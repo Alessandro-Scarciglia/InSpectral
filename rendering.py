@@ -23,7 +23,7 @@ import numpy as np
 from torchinfo import summary
 
 # Parameters
-from parameters import *
+from parameters_custom import *
 
 
 # Model class
@@ -50,10 +50,6 @@ class NeuralRenderer(nn.Module):
                  input_dim: int,
                  degree: int,
                  out_dim: int,
-
-                 # Appearance Embedder args
-                 num_embeddings: int,
-                 embedding_dim: int,
 
                  # NeRF args
                  n_layers: int,
@@ -97,13 +93,8 @@ class NeuralRenderer(nn.Module):
         
         self.pos_encoder = PositionalEmbedder(n_freq=n_freq)
 
-        # Generate embeddings for appearance code
-        self.app_embedder = nn.Embedding(num_embeddings=num_embeddings,
-                                         embedding_dim=embedding_dim).to(device)
-        
         # Infer the density and channel values for each sample along a ray
-        self.nerf = NeRFSmall(embedding_dim=embedding_dim,
-                              n_layers=n_layers,
+        self.nerf = NeRFSmall(n_layers=n_layers,
                               hidden_dim=hidden_dim,
                               geo_feat_dim=geo_feat_dim,
                               n_layers_color=n_layers_color,
@@ -120,13 +111,11 @@ class NeuralRenderer(nn.Module):
 
     def forward(
             self,
-            rays: torch.TensorType,
-            app_code: torch.TensorType
+            rays: torch.TensorType
     ):
     
         # Bring rays to target device
         rays = rays.to(self.device)
-        app_embs = self.app_embedder(app_code).to(self.device)
 
         # Produce samples along each ray produced from camera
         samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
@@ -135,10 +124,7 @@ class NeuralRenderer(nn.Module):
 
         # Concatenate points with view direction and kill one dimension
         viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
-        app_embs = app_embs.unsqueeze(1).to(self.device)
-
         viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
-        app_embs = app_embs.expand(-1, samples.shape[1], -1)
 
         rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
         rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
@@ -151,8 +137,7 @@ class NeuralRenderer(nn.Module):
         
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
         input_vector = torch.cat([enc_points, enc_dirs], dim=-1).to(self.device)
-        app_embs = app_embs.reshape(-1, app_embs.shape[-1])
-        output = self.nerf(input_vector, app_embs)
+        output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
         # and reshape as [points, samples, channels]

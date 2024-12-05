@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 
 class NeRFSmall(nn.Module):
     def __init__(self,
-                 embedding_dim: int = 16,
                  n_layers: int = 3,
                  hidden_dim: int = 64,
                  geo_feat_dim: int = 15,
@@ -21,7 +20,6 @@ class NeRFSmall(nn.Module):
 
         # Attributes
         self.device = torch.device(device)
-        self.embedding_dim = embedding_dim
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
         self.n_layers = n_layers
@@ -52,7 +50,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer, set input channel dimension.
             # Else, set the hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch
+                in_dim = self.input_ch# + self.input_ch_views
             else:
                 in_dim = self.hidden_dim
 
@@ -86,7 +84,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension
             # plus the SH encoding dimension. Else, set it to hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim + self.embedding_dim
+                in_dim = self.input_ch_views + self.geo_feat_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -106,15 +104,13 @@ class NeRFSmall(nn.Module):
     
 
     def forward(self,
-                cam_rays: torch.TensorType,
-                app_embs: torch.TensorType):
+                cam_rays: torch.TensorType):
         '''
         Inference method.
         '''
 
         # Bring rays to target device
         cam_rays = cam_rays.to(self.device)
-        app_embs = app_embs.to(self.device)
         
         # Split origin
         input_pts, input_views = torch.split(cam_rays, [self.input_ch, self.input_ch_views], dim=-1)
@@ -131,7 +127,7 @@ class NeRFSmall(nn.Module):
         sigma, geo_features = out[..., 0], out[..., 1:]
         
         # Color estimation branch
-        out = torch.cat([input_views, geo_features, app_embs], dim=-1)
+        out = torch.cat([input_views, geo_features], dim=-1)
         for layer in range(self.n_layers_color):
             out = self.color_net[layer](out)
 

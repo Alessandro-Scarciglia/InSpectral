@@ -12,7 +12,7 @@ from losses import total_variation_loss
 from metrics import *
 
 # Parameters
-from parameters import *
+from parameters_synth import *
 
 
 # Trainer agent class implementation
@@ -44,9 +44,11 @@ class Trainer:
         self.img2mse = lambda x, y : torch.mean((x - y) ** 2)
 
         # Instantiate the optimizer
-        self.optimizer = torch.optim.Adam(
-            [{'params': self.model.nerf.parameters(), 'lr': self.lr},
-            {'params': self.model.embedder.parameters(), 'lr': self.lr}],
+        self.optimizer = torch.optim.AdamW(
+            [
+                {'params': self.model.nerf.parameters(), 'lr': self.lr},
+                {'params': self.model.embedder.parameters(), 'lr': self.lr},
+            ],
             betas=self.betas,
             eps=self.eps
         )
@@ -60,7 +62,6 @@ class Trainer:
     def train_one_batch(
             self,
             rays: torch.TensorType,
-            app_code: torch.TensorType,
             labels: torch.TensorType,
             epoch: int
     ):
@@ -69,7 +70,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays, app_code)
+        chs_map, _, loss_sparsity = self.model(rays)
 
         # Zero the gradient
         self.optimizer.zero_grad()
@@ -106,7 +107,6 @@ class Trainer:
     def valid_one_batch(
             self,
             rays: torch.Tensor,
-            app_code: int,
             labels: torch.Tensor
     ):
         
@@ -114,7 +114,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays, app_code)
+        chs_map, _, loss_sparsity = self.model(rays)
 
         # Compute photometric loss on pixel estimate
         loss_photom = self.img2mse(chs_map, labels)

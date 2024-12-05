@@ -4,17 +4,15 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/rgb_False_res_3_size_256.npy",
-    "valid_set_ratio": 0.2
+    "data_path": "data/preprocessed_data/lego.npy"
 }
 
 
 # General setup
 cfg_parameters = {
-    "roll_cfgs": ["roll_0", "roll_120", "roll_240"],
-    "resolution": int(dataset_parameters["data_path"].split(".")[0].split("_")[-1]),
-    "channels": 1,
-    "device": "cuda:0"
+    "resolution": 400,
+    "channels": 3,
+    "device": "cuda"
 }
 
 
@@ -27,11 +25,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 1.0
+SCENE = 1.5
 sampler_parameters = {
-    "n_ray_samples": 64,
+    "n_ray_samples": 100,
     "near": 0.,
-    "far": SCENE * 1.73 # Diagonal of the scene cube
+    "far": 6. 
 }
 
 
@@ -61,18 +59,11 @@ sh_parameters = {
 }
 
 
-# Appearance embedding parameters
-app_parameters = {
-    "num_embeddings": len(cfg_parameters["roll_cfgs"]),
-    "embedding_dim": 7
-}
-
-
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
-    "n_layers": 3,
+    "n_layers": 2,
     "hidden_dim": 64,
-    "geo_feat_dim": 10,
+    "geo_feat_dim": 15,
     "n_layers_color": 2,
     "hidden_dim_color": 64,
     #"input_ch": posenc_parameters["n_freq"] * 6 + 3,
@@ -86,18 +77,14 @@ nerf_parameters = {
 # Parameter dictionary for training 
 training_parameters = {
     "training_batch": 32*32*16,
-    "validation_batch": 32*32*16,
     "epochs": 10,
-    "lr": 0.005,
+    "lr": 0.01,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-7,
-    "stop_tv_epoch": 5,
-    "sparsity_loss_weight": 1e-9,
-    "decay_rate": 1e-1,
-    "decay_steps": 7,
-    "test_trajectories": [
-        "data/test_trajectories/nominal.json"
-    ],
+    "tv_loss_weight": 1e-6,
+    "stop_tv_epoch": 10,
+    "sparsity_loss_weight": 1e-7,
+    "decay_rate": 0.1,
+    "decay_steps": 5,
     "verbose": True
 }

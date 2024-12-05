@@ -9,15 +9,15 @@ The script read all the pictures and create a bunch of samples made like [ray_o,
 '''
 
 # Parameters
-DEG_RES = 10
+DEG_RES = 3
 RGB = False
 SRC_IMG_CALIB = 1024
 DST_IMG_SIZE = 256
-DATASET_NAME = f"rgb_{RGB}_res_{DEG_RES}_size_{DST_IMG_SIZE}.npy"
+DATASET_NAME = f"color_{RGB}_every_{DEG_RES}deg_framesize_{DST_IMG_SIZE}.npy"
 
 # Paths
-ROOT = "data/"
-DATA_PATH = "data/transforms.json"
+ROOT = "data/custom_data/"
+DATA_PATH = "data/custom_data/transforms.json"
 CALIB_PATH = "calibration/calibration.json"
 DATASET_DST = ROOT + "preprocessed_data/" + DATASET_NAME
 
@@ -30,7 +30,7 @@ import json
 from tqdm import tqdm
 import time
 
-from parameters import *
+from parameters_custom import *
 from rays_generator import RaysGenerator
 
 
@@ -53,13 +53,15 @@ with open(DATA_PATH, "r") as fopen:
 
 # Create a configuration code, i.e. progressive integer for each element
 cfgs = list(annotations.keys())
-cfgs_codes = {cfg_name: i for i, cfg_name in enumerate(cfgs)}
 
 # Initialize the dataset list
 dataset = list()
 
 # Iterate through each configuration
 for cfg in cfgs:
+
+    if cfg not in ["roll0"]:
+        continue
 
     # Re-define the reference folder
     img_df = annotations[cfg]
@@ -82,21 +84,21 @@ for cfg in cfgs:
         else:
             img = cv2.imread(img_path, 0)
             img = cv2.resize(img, (DST_IMG_SIZE, DST_IMG_SIZE))
+
+            # Expand dimension
             img = np.expand_dims(img, axis=-1)
 
-        # Retrieve the c2w matrix
+        # Retrieve the c2w matrix and normalize distance
         c2w_tensor = torch.tensor(img_df[img_path])
+        c2w_tensor[:3, 3] /= 2.
 
         # Generate rays for such c2w
         rays = ray_gen(c2w_tensor).numpy()
 
-        # Generate configuration code
-        cfg_code = np.ones(shape=(DST_IMG_SIZE, DST_IMG_SIZE, 1)) * cfgs_codes[cfg]
-
         # Concatenate data and reshape as a list of pixels
-        # Target length is: 6 (3 for 3D origin + 3 for 3D direction) + 1 (cfg code) + Number of Channels 
-        target_length = 6 + 1 + img.shape[-1]
-        rays_cfg_labels = np.concatenate([rays, cfg_code, img/255.], axis=-1)
+        # Target length is: 6 (3 for 3D origin + 3 for 3D direction) + Number of Channels 
+        target_length = 6 + img.shape[-1]
+        rays_cfg_labels = np.concatenate([rays, img / 255.], axis=-1)
         rays_cfg_labels = rays_cfg_labels.reshape(-1, target_length)
 
         # Append to dataset list
@@ -108,4 +110,3 @@ dataset = np.array(dataset)
 print(f"Taken {len(dataset) / (DST_IMG_SIZE**2)} frames.")
 np.random.shuffle(dataset)
 np.save(DATASET_DST, dataset)
-

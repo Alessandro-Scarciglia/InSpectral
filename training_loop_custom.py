@@ -5,12 +5,12 @@ This file is meant to build the training process of the rendering model.
 # Import custom modules
 from rays_generator import RaysGenerator
 from rendering import NeuralRenderer
-from dataset import InspectralData
+from dataset_custom import InspectralData
 from trainer import Trainer
 from metrics import *
 
 # Parameters
-from parameters import *
+from parameters_custom import *
 
 # Import standard modules
 import torch
@@ -41,15 +41,14 @@ def main(folder_name: str):
         K=K
     )
 
-    # Instantiate the model
+    # Instantiate the model*
     model = NeuralRenderer(
         **sampler_parameters,
         **hash_parameters,
         **posenc_parameters,
         **sh_parameters,
-        **app_parameters,
         **nerf_parameters,
-        device="cuda"
+        device=cfg_parameters["device"]
     )
 
     # Load training and validation datasets
@@ -95,13 +94,12 @@ def main(folder_name: str):
         for n_iter, ray_batch in enumerate(training_dataloader):
 
             # Bring batch to target device
-            ray_batch = ray_batch.to(model.device)
+            ray_batch = ray_batch.to(cfg_parameters["device"])
 
             # Train one batch
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
-                app_code=ray_batch[:, 6].int(),
-                labels=ray_batch[:, 7:],
+                labels=ray_batch[:, 6:],
                 epoch=epoch
             )
 
@@ -125,13 +123,12 @@ def main(folder_name: str):
             for m_iter, ray_batch_val in enumerate(validation_dataloader):
 
                 # Bring batch to target device
-                ray_batch_val = ray_batch_val.to(model.device)
+                ray_batch_val = ray_batch_val.to(cfg_parameters["device"])
 
                 # Process a batch and compute PSNR
                 out = trainer_agent.valid_one_batch(
                     rays=ray_batch_val[:, :6],
-                    app_code=ray_batch_val[:, 6].int(),
-                    labels=ray_batch_val[:, 7:],
+                    labels=ray_batch_val[:, 6:],
                 )
 
                 # Split validation output
@@ -188,17 +185,12 @@ def main(folder_name: str):
 
                     # Produce rays and code
                     test_rays = ray_gen(c2w_wp).reshape(-1, 6)
-                    test_app_code = torch.zeros(size=(cfg_parameters["resolution"] * cfg_parameters["resolution"],))
 
                     # Bring data to target device
-                    test_rays = test_rays.to(model.device)
-                    test_app_code = test_app_code.to(model.device)
+                    test_rays = test_rays.to(cfg_parameters["device"])
 
-                    # Fix configuration code to 0 and produce images
-                    ch_map, dp_map, _ = model(
-                        rays=test_rays,
-                        app_code=test_app_code.int()
-                    )
+                    # Render view
+                    ch_map, dp_map, _ = model(rays=test_rays)
 
                     # Rebuild images and store in the epoch folder
                     frame = ch_map.detach().cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], cfg_parameters["channels"])

@@ -45,8 +45,8 @@ class HashEmbedder(nn.Module):
         )
 
         # Custom uniform inizialization of parameters
-        for i in range(n_levels):
-            nn.init.uniform_(self.embeddings[i].weight, a=-1e-4, b=1e-4)
+        # for i in range(n_levels):
+        #     nn.init.uniform_(self.embeddings[i].weight, a=-1e-4, b=1e-4)
 
         
     def trilinear_interpolation(self,

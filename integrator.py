@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
+from parameters_synth import *
 
 
 class Integrator(nn.Module):
@@ -48,7 +49,8 @@ class Integrator(nn.Module):
         chs_map = torch.sum(weights[..., None] * chs, dim=-2) 
 
         # Compute integration of weights and densities for depth, as [rays, depth]
-        depth_map = torch.sum(weights * zvals, dim=-1) / torch.sum(weights, dim=-1)
+        zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
+        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
 
         # Finally, compute weights sparsity loss
         # TODO: check if try-expect makes sense
