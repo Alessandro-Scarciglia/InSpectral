@@ -8,6 +8,7 @@ from rendering import NeuralRenderer
 from dataset_synth import NeRFData
 from trainer import Trainer
 from metrics import *
+from generate_nerf_datasets import calculate_intrinsic_matrix
 
 # Parameters
 from parameters_synth import *
@@ -24,7 +25,7 @@ import time
 from tqdm import tqdm
 
 # Parameters
-TEST_DATA = "data/nerf_synthetic/lego"
+TEST_DATA = "/home/visione/Projects/BlenderScenarios/Dataset/V_Bar_256"
 
 # Set seeds for test repeatibility
 torch.manual_seed(1234)
@@ -34,15 +35,12 @@ torch.manual_seed(1234)
 def main(folder_name: str):
     
     # Load data for testing
-    with open(TEST_DATA + "/transforms_test.json", "r") as train_fopen:
+    with open(TEST_DATA + "/transforms.json", "r") as train_fopen:
         test_df = json.load(train_fopen)
         test_samples = test_df["frames"]
 
     # Load calibration matrix
-    with open("calibration/calibration_synth.json", "r") as fopen:
-        K = json.load(fopen)["mtx"]
-        K = np.array(K).reshape(3, 3)
-        K[:2, :3] /= 2.
+    K = calculate_intrinsic_matrix(fov=test_df["camera_angle_x"], resolution=(256, 256))
 
     # Define the rays generator object
     raygen = RaysGeneratorSynth(**rays_parameters, K=K)
@@ -128,11 +126,11 @@ def main(folder_name: str):
             os.mkdir(rgb_dst)
             os.mkdir(depth_dst)
             
-            # Loop through the valtestidation set
+            # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
                 
                 # Test 25 views out of 200
-                if m_iter % 8:
+                if m_iter % 12:
                     continue
                 
                 # Generate rays
@@ -141,7 +139,7 @@ def main(folder_name: str):
                 test_rays = test_rays.to(cfg_parameters["device"])
 
                 # Retrieve labels
-                target_image = cv2.imread(os.path.join(TEST_DATA, test_sample["file_path"] + ".png"))
+                target_image = cv2.imread(os.path.join(TEST_DATA, test_sample["file_path"]))
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
                 target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
 

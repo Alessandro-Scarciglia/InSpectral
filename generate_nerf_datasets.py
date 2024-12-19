@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/InSpectral/data/nerf_synthetic/lego"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/lego.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Dataset/V_Bar_256"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/vbar.npy"
 
 
 # Generate K from resolution and FOV
@@ -52,28 +52,29 @@ def calculate_intrinsic_matrix(fov, resolution):
 def main():
     
     # Load data
-    with open(DATA_PATH + "/transforms_train.json", "r") as train_fopen:
+    with open(DATA_PATH + "/transforms.json", "r") as train_fopen:
         train_df = json.load(train_fopen)
         train_fov = train_df["camera_angle_x"]
         train_samples = train_df["frames"]
 
     # Define the rays generator
-    K = calculate_intrinsic_matrix(fov=train_fov, resolution=(800, 800))
-    K[:2, :3] /= 2.
-    
-    raygen = RaysGeneratorSynth(H=400, W=400, CH=3, K=K)
+    K = calculate_intrinsic_matrix(fov=train_fov, resolution=(256, 256))
+    raygen = RaysGeneratorSynth(H=256, W=256, CH=3, K=K)
 
     # Dataset object
     dataset = list()
 
     # Store pixels from each training image
     print("Generating Training Dataset...")
-    for _, sample in tqdm(enumerate(train_samples)):
+    for i, sample in tqdm(enumerate(train_samples)):
+
+        # if i % 3:
+        #     continue
 
         # Load the image
-        img_path = os.path.join(DATA_PATH, sample["file_path"] + ".png")
+        img_path = os.path.join(DATA_PATH, sample["file_path"])
         img = cv2.imread(img_path)
-        img = cv2.resize(img, (400, 400))
+        img = cv2.resize(img, (256, 256))
         
         # Generate rays
         c2w = torch.tensor(sample["transform_matrix"])
@@ -89,7 +90,7 @@ def main():
 
     # Store in a single dataset numpy file
     dataset = np.array(dataset)
-    print(f"Taken {len(dataset) / (400**2)} frames.")
+    print(f"Taken {len(dataset) / (256**2)} frames.")
     np.random.shuffle(dataset)
     np.save(DATA_DST, dataset)
 

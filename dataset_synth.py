@@ -29,6 +29,6 @@ class NeRFData(Dataset):
 # Test for usage
 if __name__ == "__main__":
     ds = NeRFData(
-        data_path="data/preprocessed_data/lego.npy",
+        data_path="data/preprocessed_data/vbar.npy",
     )
-    print(ds[:5])
+    print(ds[0])

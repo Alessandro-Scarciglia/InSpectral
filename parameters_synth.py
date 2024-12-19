@@ -4,13 +4,13 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/lego.npy"
+    "data_path": "data/preprocessed_data/vbar.npy"
 }
 
 
 # General setup
 cfg_parameters = {
-    "resolution": 400,
+    "resolution": 256,
     "channels": 3,
     "device": "cuda"
 }
@@ -25,11 +25,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 1.5
+SCENE = 4
 sampler_parameters = {
-    "n_ray_samples": 100,
-    "near": 0.,
-    "far": 6. 
+    "n_ray_samples": 128,
+    "near": 10.,
+    "far": 20. 
 }
 
 
@@ -76,14 +76,14 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*16,
+    "training_batch": 32*32*32,
     "epochs": 10,
-    "lr": 0.01,
+    "lr": 0.005,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-6,
     "stop_tv_epoch": 10,
-    "sparsity_loss_weight": 1e-7,
+    "sparsity_loss_weight": 1e-8,
     "decay_rate": 0.1,
     "decay_steps": 5,
     "verbose": True
