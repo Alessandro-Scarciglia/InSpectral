@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 # Import for testing
-from rays_generator import RaysGenerator
+from rays_generator_synth import RaysGeneratorSynth
 import json
 import numpy as np
 import matplotlib.pyplot as plt

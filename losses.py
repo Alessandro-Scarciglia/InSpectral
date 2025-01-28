@@ -1,7 +1,7 @@
 # Import modules
 from math import exp, log, floor
 import torch
-from parameters_custom import *
+from parameters_synth import *
 
 
 # Hashing function

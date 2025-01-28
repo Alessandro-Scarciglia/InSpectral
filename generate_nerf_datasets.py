@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Dataset/V_Bar_256"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/vbar.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/VIS"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/vis.npy"
 
 
 # Generate K from resolution and FOV
@@ -59,7 +59,7 @@ def main():
 
     # Define the rays generator
     K = calculate_intrinsic_matrix(fov=train_fov, resolution=(256, 256))
-    raygen = RaysGeneratorSynth(H=256, W=256, CH=3, K=K)
+    raygen = RaysGeneratorSynth(H=256, W=256, CH=1, K=K)
 
     # Dataset object
     dataset = list()
@@ -73,16 +73,18 @@ def main():
 
         # Load the image
         img_path = os.path.join(DATA_PATH, sample["file_path"])
-        img = cv2.imread(img_path)
+        img = cv2.imread(img_path, 0)
         img = cv2.resize(img, (256, 256))
+        img = np.expand_dims(img, axis=-1)
         
         # Generate rays
         c2w = torch.tensor(sample["transform_matrix"])
         rays = raygen(c2w)
 
         # Compose output
+        
         rays_cfg_labels = np.concatenate([rays, img / 255.], axis=-1)
-        rays_cfg_labels = rays_cfg_labels.reshape(-1, 9)
+        rays_cfg_labels = rays_cfg_labels.reshape(-1, 7)
 
         # Append to dataset list
         dataset += rays_cfg_labels.tolist()

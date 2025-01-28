@@ -18,12 +18,12 @@ from integrator import Integrator
 
 # Import modules for testing code
 import json
-from rays_generator import RaysGenerator
+from rays_generator_synth import RaysGeneratorSynth
 import numpy as np
 from torchinfo import summary
 
 # Parameters
-from parameters_custom import *
+from parameters_synth import *
 
 
 # Model class

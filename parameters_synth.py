@@ -4,15 +4,16 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/vbar.npy"
+    "data_path": "data/preprocessed_data/ir.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/IR"
 }
 
 
 # General setup
 cfg_parameters = {
     "resolution": 256,
-    "channels": 3,
-    "device": "cuda"
+    "channels": 1,
+    "device": "cuda:1"
 }
 
 
@@ -25,11 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 4
+SCENE = 3
 sampler_parameters = {
     "n_ray_samples": 128,
-    "near": 10.,
-    "far": 20. 
+    "near": 3.,
+    "far": 13. 
 }
 
 
@@ -76,9 +77,9 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*32,
+    "training_batch": 32*32*16,
     "epochs": 10,
-    "lr": 0.005,
+    "lr": 0.05,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-6,

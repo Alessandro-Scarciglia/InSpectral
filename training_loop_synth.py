@@ -24,9 +24,6 @@ import os
 import time
 from tqdm import tqdm
 
-# Parameters
-TEST_DATA = "/home/visione/Projects/BlenderScenarios/Dataset/V_Bar_256"
-
 # Set seeds for test repeatibility
 torch.manual_seed(1234)
 
@@ -35,7 +32,7 @@ torch.manual_seed(1234)
 def main(folder_name: str):
     
     # Load data for testing
-    with open(TEST_DATA + "/transforms.json", "r") as train_fopen:
+    with open(dataset_parameters["test_path"] + "/transforms.json", "r") as train_fopen:
         test_df = json.load(train_fopen)
         test_samples = test_df["frames"]
 
@@ -56,7 +53,7 @@ def main(folder_name: str):
     )
 
     # Load training and validation datasets
-    training_dataset = NeRFData(**dataset_parameters)
+    training_dataset = NeRFData(dataset_parameters["data_path"])
 
     # Create a dataloader for training and validation datasets
     training_dataloader = DataLoader(
@@ -139,17 +136,11 @@ def main(folder_name: str):
                 test_rays = test_rays.to(cfg_parameters["device"])
 
                 # Retrieve labels
-                target_image = cv2.imread(os.path.join(TEST_DATA, test_sample["file_path"]))
+                target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
                 target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
 
-                # Estimate rendering in 4 batches 
-                # test_rgb = torch.tensor([], device=cfg_parameters["device"])
-                # test_depth = torch.tensor([], device=cfg_parameters["device"])
-                # for n_patch in range(4):
-                #     rgb_patch, depth_patch, _ = model(test_rays[n_patch*(200**2): (n_patch+1)*(200**2)])
-                #     test_rgb = torch.concatenate([test_rgb, rgb_patch], dim=0)
-                #     test_depth = torch.concatenate([test_depth, depth_patch], dim=0)
+                # Estimate rendering in 4 batches
                 test_rgb, test_depth, _ = model(test_rays)
                 
                 # Evaluate test PSNR
@@ -196,4 +187,4 @@ if __name__ == "__main__":
 
     # Launch training loop
     main(folder_name=folder_name)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
