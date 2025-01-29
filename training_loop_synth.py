@@ -141,7 +141,7 @@ def main(folder_name: str):
                 target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
 
                 # Estimate rendering in 4 batches
-                test_rgb, test_depth, _ = model(test_rays)
+                test_rgb, test_depth, _, _, _ = model(test_rays)
                 
                 # Evaluate test PSNR
                 test_psnr = compute_psnr(img1=test_rgb, img2=target_image)

@@ -16,12 +16,6 @@ from positional_encoder import PositionalEmbedder
 from small_nerf import NeRFSmall
 from integrator import Integrator
 
-# Import modules for testing code
-import json
-from rays_generator_synth import RaysGeneratorSynth
-import numpy as np
-from torchinfo import summary
-
 # Parameters
 from parameters_synth import *
 
@@ -145,26 +139,8 @@ class NeuralRenderer(nn.Module):
         output[~keep_mask, -1] = 0
         output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
         
+        
         # Integrate densities and channels values estimate along each ray
         chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
 
-        return chs_map, depth_map, sparsity_loss
-    
-
-
-if __name__ == "__main__":
-
-    # Retrieve intrinsic calibration matrix K
-    with open('calibration/calibration.json', "r") as fopen:
-        calib = np.array(json.load(fopen)["mtx"]).reshape(3, 3)
-        calib[:2, :3] /=  1024./cfg_parameters["resolution"]
-
-    raygen = RaysGenerator(**rays_parameters, K=calib)
-    model = NeuralRenderer(**sampler_parameters,
-                           **posenc_parameters,
-                           **sh_parameters,
-                           **hash_parameters,
-                           **nerf_parameters,
-                           device="cpu")
-    
-    print(summary(model))
+        return chs_map, depth_map, sparsity_loss, samples, output

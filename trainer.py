@@ -70,7 +70,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays)
+        chs_map, _, loss_sparsity, _, _ = self.model(rays)
 
         # Zero the gradient
         self.optimizer.zero_grad()

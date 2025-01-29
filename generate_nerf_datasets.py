@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/VIS"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/vis.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/IR"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/ir.npy"
 
 
 # Generate K from resolution and FOV
