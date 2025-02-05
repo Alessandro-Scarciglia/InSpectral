@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/ir.npy",
-    "test_path": "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/IR"
+    "data_path": "data/preprocessed_data/vis.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/VIS"
 }
 
 
@@ -28,9 +28,9 @@ rays_parameters = {
 # Parameter dictionary for sampler
 SCENE = 3
 sampler_parameters = {
-    "n_ray_samples": 5,
-    "near": 3.,
-    "far": 13. 
+    "n_ray_samples": 32,
+    "near": 2.,
+    "far": 14. 
 }
 
 
@@ -78,7 +78,7 @@ nerf_parameters = {
 # Parameter dictionary for training 
 training_parameters = {
     "training_batch": 32*32*16,
-    "epochs": 10,
+    "epochs": 20,
     "lr": 0.01,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
@@ -86,6 +86,6 @@ training_parameters = {
     "stop_tv_epoch": 10,
     "sparsity_loss_weight": 1e-8,
     "decay_rate": 0.1,
-    "decay_steps": 5,
+    "decay_steps": 10,
     "verbose": True
 }

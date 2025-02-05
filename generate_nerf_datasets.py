@@ -68,8 +68,8 @@ def main():
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(train_samples)):
 
-        # if i % 3:
-        #     continue
+        if i % 4:
+            continue
 
         # Load the image
         img_path = os.path.join(DATA_PATH, sample["file_path"])
