@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/IR"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/ir.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_Light/VIS"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_light_v_120.npy"
 
 
 # Generate K from resolution and FOV
@@ -68,7 +68,7 @@ def main():
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(train_samples)):
 
-        if i % 4:
+        if i % 3:
             continue
 
         # Load the image
@@ -82,7 +82,6 @@ def main():
         rays = raygen(c2w)
 
         # Compose output
-        
         rays_cfg_labels = np.concatenate([rays, img / 255.], axis=-1)
         rays_cfg_labels = rays_cfg_labels.reshape(-1, 7)
 

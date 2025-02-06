@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/vis.npy",
-    "test_path": "/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/VIS"
+    "data_path": "data/preprocessed_data/sat_vis_light_v_120.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_Light/VIS"
 }
 
 
@@ -26,11 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 3
+SCENE = 5.
 sampler_parameters = {
-    "n_ray_samples": 32,
-    "near": 2.,
-    "far": 14. 
+    "n_ray_samples": 64,
+    "near": 3.,
+    "far": 21.
 }
 
 
@@ -63,10 +63,10 @@ sh_parameters = {
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
     "n_layers": 2,
-    "hidden_dim": 64,
+    "hidden_dim": 128,
     "geo_feat_dim": 15,
     "n_layers_color": 2,
-    "hidden_dim_color": 64,
+    "hidden_dim_color": 128,
     #"input_ch": posenc_parameters["n_freq"] * 6 + 3,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
     #"input_ch_views": posenc_parameters["n_freq"] * 6 + 3,
@@ -79,13 +79,13 @@ nerf_parameters = {
 training_parameters = {
     "training_batch": 32*32*16,
     "epochs": 20,
-    "lr": 0.01,
+    "lr": 0.005,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-6,
-    "stop_tv_epoch": 10,
+    "stop_tv_epoch": 5,
     "sparsity_loss_weight": 1e-8,
-    "decay_rate": 0.1,
+    "decay_rate": 0.9,
     "decay_steps": 10,
     "verbose": True
 }
