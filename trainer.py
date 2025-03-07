@@ -62,15 +62,16 @@ class Trainer:
     def train_one_batch(
             self,
             rays: torch.TensorType,
+            sundir: torch.TensorType,
             labels: torch.TensorType,
             epoch: int
     ):
         
-        # Move labels to device
+        # Move labels and sundir to device
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity, _, _ = self.model(rays)
+        chs_map, _, loss_sparsity, _, _ = self.model(rays, sundir)
 
         # Zero the gradient
         self.optimizer.zero_grad()

@@ -1,6 +1,7 @@
 import bpy
 import math
 import mathutils
+import random
 import json
 import os
 import time
@@ -34,13 +35,13 @@ enable_gpus("CUDA")
 
 
 # Configuration
-output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_Light/VIS"        # Set your desired output path
-image_format = 'PNG'                                                                       # File format (e.g., 'PNG', 'JPEG')
-resolution = (256, 256)                                                                    # Resolution of the output images
-num_frames = 360                                                                           # Number of frames for the satellite's orbit (one frame per degree)
-camera_distance = 12                                                                       # Distance of the camera from the satellite
-json_output_path = os.path.join(output_path, "transforms.json")                            # JSON output file
-cam_flag = 'V' 
+output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS"    # Set your desired output path
+image_format = 'PNG'                                                                            # File format (e.g., 'PNG', 'JPEG')
+resolution = (256, 256)                                                                         # Resolution of the output images
+num_frames = 180                                                                                # Number of frames for the satellite's orbit (one frame per degree)
+camera_distance = 12                                                                            # Distance of the camera from the satellite
+json_output_path = os.path.join(output_path, "transforms.json")                                 # JSON output file
+cam_flag = ['V', 'R']
 
 
 # Set render settings
@@ -51,11 +52,13 @@ scene.render.resolution_x, scene.render.resolution_y = resolution
 
 
 # Access objects
-camera = bpy.data.objects['Camera'] 
+camera = bpy.data.objects['Camera']
+sun = bpy.data.objects["Light"]
 
 
 # Set initial orientations
 camera.rotation_mode = 'QUATERNION'
+sun.rotation_mode = 'QUATERNION'
 
 
 # Calculate camera_angle_x (horizontal FOV)
@@ -70,88 +73,108 @@ nerf_data = {
     "frames": []
 }
 
+# Initialize object pose to a random configuration in origin
+random_quaternion = mathutils.Quaternion((random.uniform(-1, 1),
+                                          random.uniform(-1, 1),
+                                          random.uniform(-1, 1),
+                                          random.uniform(-1, 1)))
+random_quaternion.normalize()
+obj2world = random_quaternion.to_matrix().to_4x4()
 
-# Animation loop
-for frame in range(num_frames):
+# For each orbit
+for n_orbit, orbit in enumerate(cam_flag):
 
-
-    # Discretize angle according to number of frames required
-    angle = math.radians(frame * (360 / num_frames))
-    print(f"Frame {frame}/{num_frames}: Processing...")
-
-
-    # V-Bar Camera-2-Obj Transform
-    vcam2obj = mathutils.Matrix([
-        [1,               0,                0,                                  0],
-        [0, math.cos(angle), -math.sin(angle), -camera_distance * math.sin(angle)],
-        [0, math.sin(angle),  math.cos(angle),  camera_distance * math.cos(angle)],
-        [0,               0,                0,                                  1]
-    ])
+    # Animation loop
+    for frame in range(num_frames):
 
 
-    # Static Transform for pointing
-    rcam2rcam = mathutils.Matrix([
-        [ 0, 0, 1, 0],
-        [ 0, 1, 0, 0],
-        [-1, 0, 0, 0],
-        [ 0, 0, 0, 1]
-    ])
+        # Discretize angle according to number of frames required
+        angle = math.radians(frame * (360 / num_frames))
+        print(f"Frame {frame + n_orbit * num_frames}/{num_frames * 2}: Processing...")
 
 
-    # R-Bar Camera-2-Obj Transform
-    rcam2obj = mathutils.Matrix([
-        [math.cos(angle), -math.sin(angle), 0, camera_distance * math.cos(angle)],
-        [math.sin(angle),  math.cos(angle), 0, camera_distance * math.sin(angle)],
-        [              0,                0, 1,                                 0],
-        [              0,                0, 0,                                 1]
-    ])
+        # V-Bar Camera-2-Obj Transform
+        vcam2obj = mathutils.Matrix([
+            [1,               0,                0,                                  0],
+            [0, math.cos(angle), -math.sin(angle), -camera_distance * math.sin(angle)],
+            [0, math.sin(angle),  math.cos(angle),  camera_distance * math.cos(angle)],
+            [0,               0,                0,                                  1]
+        ])
 
 
-    # Select camera
-    if cam_flag == 'V':
-        cam2obj = vcam2obj
-    elif cam_flag == 'R':
-        cam2obj = rcam2obj @ rcam2rcam
-    else:
-        print(f"No available camera with code {cam_flag}")
-        exit(5)
+        # Static Transform for pointing
+        rcam2rcam = mathutils.Matrix([
+            [ 0, 0, 1, 0],
+            [ 0, 1, 0, 0],
+            [-1, 0, 0, 0],
+            [ 0, 0, 0, 1]
+        ])
 
 
-    # Define satellite pose
-    t_sat = cam2obj.translation
-    quat_sat = cam2obj.to_3x3().to_quaternion()
+        # R-Bar Camera-2-Obj Transform
+        rcam2obj = mathutils.Matrix([
+            [math.cos(angle), -math.sin(angle), 0, camera_distance * math.cos(angle)],
+            [math.sin(angle),  math.cos(angle), 0, camera_distance * math.sin(angle)],
+            [              0,                0, 1,                                 0],
+            [              0,                0, 0,                                 1]
+        ])
 
 
-    # Define camera pose
-    t_cam = cam2obj.translation
-    quat_cam = cam2obj.to_3x3().to_quaternion()
+        # Select camera
+        if orbit == 'V':
+            cam2obj = obj2world @ vcam2obj
+        elif orbit == 'R':
+            cam2obj = obj2world @ rcam2obj @ rcam2rcam
+        else:
+            print(f"No available camera with code {cam_flag}")
+            exit(5)
 
 
-    # Assign pose to camera object
-    camera.location = (
-        t_cam[0],
-        t_cam[1],
-        t_cam[2]
-    )
-    camera.rotation_quaternion = quat_cam
+        # Define satellite pose
+        t_sat = cam2obj.translation
+        quat_sat = cam2obj.to_3x3().to_quaternion()
 
 
-    # Set output file path
-    image_filename = f"{frame:03d}.png"
-    scene.render.filepath = os.path.join(output_path, image_filename)
+        # Define camera pose
+        t_cam = cam2obj.translation
+        quat_cam = cam2obj.to_3x3().to_quaternion()
 
 
-    # Render and save image
-    print(f"Rendering {image_filename}...")
-    bpy.ops.render.render(write_still=True)
-    time.sleep(1)
+        # Assign pose to camera object
+        camera.location = (
+            t_cam[0],
+            t_cam[1],
+            t_cam[2]
+        )
+        camera.rotation_quaternion = quat_cam
+
+        # Modify light direction accordingly
+        sun2world = mathutils.Matrix([
+            [1,               0,                0, 0],
+            [0, math.cos(angle), -math.sin(angle), 0],
+            [0, math.sin(angle),  math.cos(angle), 0],
+            [0,               0,                0, 1]
+        ])
+        quat_sun = sun2world.to_3x3().to_quaternion()
+        sun.rotation_quaternion = quat_sun
+
+        # Set output file path
+        image_filename = f"{n_orbit * num_frames + frame:03d}.png"
+        scene.render.filepath = os.path.join(output_path, image_filename)
 
 
-    # Add frame data to NeRF dataset
-    nerf_data["frames"].append({
-        "file_path": image_filename,
-        "transform_matrix": [[cam2obj[row][col] for col in range(4)] for row in range(4)]
-    })
+        # Render and save image
+        print(f"Rendering {image_filename}...")
+        bpy.ops.render.render(write_still=True)
+        time.sleep(1)
+
+
+        # Add frame data to NeRF dataset
+        nerf_data["frames"].append({
+            "file_path": image_filename,
+            "transform_matrix": [[cam2obj[row][col] for col in range(4)] for row in range(4)],
+            "light_direction": [[sun2world[row][col] for col in range(4)] for row in range(4)]
+        })
 
 
 # Save the JSON file

@@ -19,6 +19,7 @@ import numpy as np
 import cv2
 from torch.utils.data import DataLoader
 import json
+import mathutils
 
 from datetime import datetime
 import os
@@ -94,7 +95,8 @@ def main(folder_name: str):
             # Train one batch
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
-                labels=ray_batch[:, 6:],
+                sundir=ray_batch[:, 6:9],
+                labels=ray_batch[:, -1:],
                 epoch=epoch
             )
 
@@ -136,13 +138,18 @@ def main(folder_name: str):
                 test_rays = raygen(test_c2w).reshape(-1, 6)
                 test_rays = test_rays.to(cfg_parameters["device"])
 
+                # Generate sun direction
+                test_sundir = mathutils.Matrix(test_sample["light_direction"]).to_3x3().to_quaternion().axis
+                test_sundir = torch.tensor(test_sundir).expand(test_rays.shape[0], -1)
+                test_sundir = test_sundir.to(cfg_parameters["device"])
+
                 # Retrieve labels
                 target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
                 target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
 
                 # Estimate rendering in 4 batches
-                test_rgb, test_depth, _, _, _ = model(test_rays)
+                test_rgb, test_depth, _, _, _ = model(test_rays, test_sundir)
                 
                 # Evaluate test PSNR
                 test_psnr = compute_psnr(img1=test_rgb, img2=target_image)

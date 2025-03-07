@@ -105,11 +105,13 @@ class NeuralRenderer(nn.Module):
 
     def forward(
             self,
-            rays: torch.TensorType
+            rays: torch.TensorType,
+            sundir: torch.TensorType
     ):
     
         # Bring rays to target device
         rays = rays.to(self.device)
+        sundir = sundir.to(self.device)
 
         # Produce samples along each ray produced from camera
         samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
@@ -120,17 +122,22 @@ class NeuralRenderer(nn.Module):
         viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
         viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
 
+        # Likewise for sun direction
+        sundir = sundir.unsqueeze(1).to(self.device)
+        sundir = sundir.expand(-1, samples.shape[1], -1)
+
         rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
         rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
+        sundir = sundir.reshape(-1, 3)
 
         # Hash-encode the samples coordinates and SH-encode the view directions
         enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
-        #enc_points = self.pos_encoder(rays_and_viewdirs[..., :3])
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
-        #enc_dirs = self.pos_encoder(rays_and_viewdirs[..., 3:6])
+        enc_sundir = self.sh_encoder(sundir)
+
         
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
-        input_vector = torch.cat([enc_points, enc_dirs], dim=-1).to(self.device)
+        input_vector = torch.cat([enc_points, enc_dirs, enc_sundir], dim=-1).to(self.device)
         output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries

@@ -1,5 +1,6 @@
 # Import modules
 import numpy as np
+import mathutils
 import torch
 from rays_generator_synth import RaysGeneratorSynth
 import json
@@ -10,8 +11,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_Light/VIS"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_light_v_120.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_dynlight_vr_180.npy"
 
 
 # Generate K from resolution and FOV
@@ -68,7 +69,7 @@ def main():
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(train_samples)):
 
-        if i % 3:
+        if i % 2:
             continue
 
         # Load the image
@@ -81,9 +82,14 @@ def main():
         c2w = torch.tensor(sample["transform_matrix"])
         rays = raygen(c2w)
 
+        # Get light direction from quaternion
+        sun_mtx = mathutils.Matrix(sample["light_direction"])
+        sun_dir = np.array(sun_mtx.to_quaternion().axis)
+        bc_sun_dir = np.ones((256, 256, 3)) * sun_dir
+
         # Compose output
-        rays_cfg_labels = np.concatenate([rays, img / 255.], axis=-1)
-        rays_cfg_labels = rays_cfg_labels.reshape(-1, 7)
+        rays_cfg_labels = np.concatenate([rays, bc_sun_dir, img / 255.], axis=-1)
+        rays_cfg_labels = rays_cfg_labels.reshape(-1, 10)
 
         # Append to dataset list
         dataset += rays_cfg_labels.tolist()

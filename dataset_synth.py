@@ -29,6 +29,6 @@ class NeRFData(Dataset):
 # Test for usage
 if __name__ == "__main__":
     ds = NeRFData(
-        data_path="data/preprocessed_data/ir.npy",
+        data_path="data/preprocessed_data/sat_vis_dynlight_vr_180.npy",
     )
     print(ds[0])

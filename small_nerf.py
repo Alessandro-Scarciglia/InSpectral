@@ -50,7 +50,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer, set input channel dimension.
             # Else, set the hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch# + self.input_ch_views
+                in_dim = self.input_ch
             else:
                 in_dim = self.hidden_dim
 
@@ -84,7 +84,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension
             # plus the SH encoding dimension. Else, set it to hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim
+                in_dim = 2 * self.input_ch_views + self.geo_feat_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -104,16 +104,18 @@ class NeRFSmall(nn.Module):
     
 
     def forward(self,
-                cam_rays: torch.TensorType):
+                rays: torch.TensorType):
         '''
         Inference method.
         '''
 
         # Bring rays to target device
-        cam_rays = cam_rays.to(self.device)
+        rays = rays.to(self.device)
         
         # Split origin
-        input_pts, input_views = torch.split(cam_rays, [self.input_ch, self.input_ch_views], dim=-1)
+        input_pts, input_views, input_sundir = torch.split(rays,
+                                                           [self.input_ch, self.input_ch_views, self.input_ch_views],
+                                                           dim=-1)
         
         # Sigma estimation branch: usually only geometric points (x, y, z) are necessary to estimate the
         # volumetric density. Indeed, the volumetric density of a point should not be linked to the viewdir.
@@ -127,7 +129,7 @@ class NeRFSmall(nn.Module):
         sigma, geo_features = out[..., 0], out[..., 1:]
         
         # Color estimation branch
-        out = torch.cat([input_views, geo_features], dim=-1)
+        out = torch.cat([input_views, input_sundir, geo_features], dim=-1)
         for layer in range(self.n_layers_color):
             out = self.color_net[layer](out)
 
