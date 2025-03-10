@@ -86,6 +86,6 @@ training_parameters = {
     "stop_tv_epoch": 5,
     "sparsity_loss_weight": 1e-8,
     "decay_rate": 0.9,
-    "decay_steps": 20,
+    "decay_steps": 10,
     "verbose": True
 }

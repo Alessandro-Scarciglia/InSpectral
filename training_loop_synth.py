@@ -139,7 +139,7 @@ def main(folder_name: str):
                 test_rays = test_rays.to(cfg_parameters["device"])
 
                 # Generate sun direction
-                test_sundir = mathutils.Matrix(test_sample["light_direction"]).to_3x3().to_quaternion().axis
+                test_sundir = mathutils.Matrix(test_sample["light_direction"]).to_3x3() @ mathutils.Vector([0, 0, -1])
                 test_sundir = torch.tensor(test_sundir).expand(test_rays.shape[0], -1)
                 test_sundir = test_sundir.to(cfg_parameters["device"])
 
@@ -148,7 +148,7 @@ def main(folder_name: str):
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
                 target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
 
-                # Estimate rendering in 4 batches
+                # Estimate rendering
                 test_rgb, test_depth, _, _, _ = model(test_rays, test_sundir)
                 
                 # Evaluate test PSNR

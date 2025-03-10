@@ -83,8 +83,7 @@ def main():
         rays = raygen(c2w)
 
         # Get light direction from quaternion
-        sun_mtx = mathutils.Matrix(sample["light_direction"])
-        sun_dir = np.array(sun_mtx.to_quaternion().axis)
+        sun_dir = mathutils.Matrix(sample["light_direction"]) @ mathutils.Vector([0, 0, -1])
         bc_sun_dir = np.ones((256, 256, 3)) * sun_dir
 
         # Compose output
