@@ -2,12 +2,6 @@
 import torch
 import torch.nn as nn
 
-# Import for testing
-from rays_generator_synth import RaysGeneratorSynth
-import json
-import numpy as np
-import matplotlib.pyplot as plt
-
 
 class Sampler(nn.Module):
     def __init__(self,

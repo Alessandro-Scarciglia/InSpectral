@@ -95,7 +95,7 @@ class NeuralRenderer(nn.Module):
                               geo_feat_dim=geo_feat_dim,
                               n_layers_color=n_layers_color,
                               n_layers_light=n_layers_light,
-                              hidden_dim_light=hidden_dim_color,
+                              hidden_dim_light=hidden_dim_light,
                               hidden_dim_color=hidden_dim_color,
                               input_ch=input_ch,
                               input_ch_views=input_ch_views,
@@ -139,7 +139,6 @@ class NeuralRenderer(nn.Module):
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
         enc_sundir = self.sh_encoder(sundir)
 
-        
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
         input_vector = torch.cat([enc_points, enc_dirs, enc_sundir], dim=-1).to(self.device)
         output = self.nerf(input_vector)

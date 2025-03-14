@@ -53,7 +53,6 @@ class Integrator(nn.Module):
         depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
 
         # Finally, compute weights sparsity loss
-        # TODO: check if try-expect makes sense
         try:
             sparsity_loss = Categorical(
                 probs = torch.cat([weights, 1.0 - weights.sum(-1, keepdim=True) + 1e-6], dim=-1)

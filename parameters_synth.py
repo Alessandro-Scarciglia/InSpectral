@@ -13,7 +13,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 256,
     "channels": 1,
-    "device": "cuda:0"
+    "device": "cuda:1"
 }
 
 
@@ -28,7 +28,7 @@ rays_parameters = {
 # Parameter dictionary for sampler
 SCENE = 5.
 sampler_parameters = {
-    "n_ray_samples": 64,
+    "n_ray_samples": 64*2,
     "near": 3.,
     "far": 21.
 }
@@ -63,10 +63,10 @@ sh_parameters = {
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
     "n_layers": 2,
-    "hidden_dim": 128,
-    "geo_feat_dim": 15,
+    "hidden_dim": 256,
+    "geo_feat_dim": 16,
     "n_layers_light": 2,
-    "hidden_dim_light": 64,
+    "hidden_dim_light": 128,
     "n_layers_color": 2,
     "hidden_dim_color": 128,
     #"input_ch": posenc_parameters["n_freq"] * 6 + 3,
@@ -79,7 +79,7 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*8,
+    "training_batch": 32*32*16,
     "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),

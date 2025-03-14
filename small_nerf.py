@@ -179,10 +179,10 @@ class NeRFSmall(nn.Module):
 
         # Light estimation branch
         geo_features_detached = geo_features.detach()
-        fading = torch.cat([input_sundir, geo_features_detached], dim=-1)
+        fading_exp = torch.cat([input_sundir, geo_features_detached], dim=-1)
         for layer in range(self.n_layers_light):
-            fading = self.light_net[layer](fading)
-            fading = F.relu(fading, inplace=True)
+            fading_exp = self.light_net[layer](fading_exp)
+            fading_exp = F.relu(fading_exp, inplace=True)
         
         # Extract color and produce inference output
         fading_exp = torch.clamp(fading_exp, max=10)

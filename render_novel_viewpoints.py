@@ -11,7 +11,7 @@ from rendering import NeuralRenderer
 
 # Parameters
 CALIB_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS/transforms.json"
-MODEL_PATH = "training_logs/folder_2025-03-11_15-12-35/epoch_29/chkpt.pt"
+MODEL_PATH = "training_logs/folder_2025-03-14_14-03-23/epoch_29/chkpt.pt"
 WPS_PATH =   "data/test_wps.npy"
 
 
@@ -52,7 +52,7 @@ def main():
         # Load data for testing
         with open(dataset_parameters["test_path"] + "/transforms.json", "r") as train_fopen:
             test_df = json.load(train_fopen)
-            wp = torch.tensor(test_df["frames"][0]["transform_matrix"])
+            wp = torch.tensor(test_df["frames"][309]["transform_matrix"])
 
         # Generate rays
         test_rays = raygen(wp).reshape(-1, 6)
