@@ -13,7 +13,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 256,
     "channels": 1,
-    "device": "cuda"
+    "device": "cuda:0"
 }
 
 
@@ -65,7 +65,9 @@ nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 128,
     "geo_feat_dim": 15,
-    "n_layers_color": 3,
+    "n_layers_light": 2,
+    "hidden_dim_light": 64,
+    "n_layers_color": 2,
     "hidden_dim_color": 128,
     #"input_ch": posenc_parameters["n_freq"] * 6 + 3,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],          
@@ -77,13 +79,13 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*16,
+    "training_batch": 32*32*8,
     "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-6,
-    "stop_tv_epoch": 5,
+    "tv_loss_weight": 1e-7,
+    "stop_tv_epoch": 10,
     "sparsity_loss_weight": 1e-8,
     "decay_rate": 0.9,
     "decay_steps": 10,

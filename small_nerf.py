@@ -9,6 +9,8 @@ class NeRFSmall(nn.Module):
     def __init__(self,
                  n_layers: int = 3,
                  hidden_dim: int = 64,
+                 n_layers_light: int = 3,
+                 hidden_dim_light: int = 128,
                  geo_feat_dim: int = 15,
                  n_layers_color: int = 4,
                  hidden_dim_color: int = 64,
@@ -24,6 +26,8 @@ class NeRFSmall(nn.Module):
         self.input_ch_views = input_ch_views
         self.n_layers = n_layers
         self.hidden_dim = hidden_dim
+        self.n_layers_light = n_layers_light
+        self.hidden_dim_light = hidden_dim_light
         self.geo_feat_dim = geo_feat_dim
         self.n_layers_color = n_layers_color
         self.hidden_dim_color = hidden_dim_color
@@ -34,6 +38,9 @@ class NeRFSmall(nn.Module):
 
         # Build color network
         self.color_net = self.build_color_net()
+
+        # Build light network
+        self.light_net = self.build_light_net()
 
 
     def build_sigma_net(self):
@@ -84,7 +91,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension
             # plus the SH encoding dimension. Else, set it to hidden dimension.
             if layer == 0:
-                in_dim = 2 * self.input_ch_views + self.geo_feat_dim
+                in_dim = self.input_ch_views + self.geo_feat_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -103,6 +110,39 @@ class NeRFSmall(nn.Module):
         return color_net_model
     
 
+    def build_light_net(self):
+        '''
+        Build the network which estimates the light intensity.
+        '''
+
+        # Initialize the list of layers
+        light_net = list()
+
+        # Build layer by layer
+        for layer in range(self.n_layers_light):
+
+            # If it is the first layer set it to input channel dimension
+            # plus the SH encoding dimension. Else, set it to hidden dimension.
+            if layer == 0:
+                in_dim = self.input_ch_views + self.geo_feat_dim
+            else:
+                in_dim = self.hidden_dim_light
+
+            # If it is the last layer, set it to output channel dimension.
+            # Else, set it to hidden dimension.
+            if layer == self.n_layers_light - 1:
+                out_dim = 1
+            else:
+                out_dim = self.hidden_dim_light
+
+            light_net.append(nn.Linear(in_dim, out_dim, bias=False))
+
+        # Build the network model as a ModuleList
+        light_net_model = nn.ModuleList(light_net)
+
+        return light_net_model
+    
+
     def forward(self,
                 rays: torch.TensorType):
         '''
@@ -117,9 +157,7 @@ class NeRFSmall(nn.Module):
                                                            [self.input_ch, self.input_ch_views, self.input_ch_views],
                                                            dim=-1)
         
-        # Sigma estimation branch: usually only geometric points (x, y, z) are necessary to estimate the
-        # volumetric density. Indeed, the volumetric density of a point should not be linked to the viewdir.
-        # However, including also viewdir in input, the PSNR improves by 1.5pt ca. at the first epoch. Overfitting?
+        # Sigma estimation branch
         out = input_pts
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
@@ -129,20 +167,29 @@ class NeRFSmall(nn.Module):
         sigma, geo_features = out[..., 0], out[..., 1:]
         
         # Color estimation branch
-        out = torch.cat([input_views, input_sundir, geo_features], dim=-1)
+        out = torch.cat([input_views, geo_features], dim=-1)
         for layer in range(self.n_layers_color):
             out = self.color_net[layer](out)
 
             # If the layer is not the last, add relu unit
             if layer != self.n_layers_color - 1:
                 out = F.relu(out, inplace=True)
+            else:
+                out = F.sigmoid(out)
+
+        # Light estimation branch
+        geo_features_detached = geo_features.detach()
+        fading = torch.cat([input_sundir, geo_features_detached], dim=-1)
+        for layer in range(self.n_layers_light):
+            fading = self.light_net[layer](fading)
+            fading = F.relu(fading, inplace=True)
         
         # Extract color and produce inference output
-        color = out
-        outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
+        fading_exp = torch.clamp(fading_exp, max=10)
+        appearance = out * torch.exp(-fading_exp)
+        outputs = torch.cat([appearance, sigma.unsqueeze(-1)], dim=-1)
         
         return outputs
-
 
 
 # Usage Test
