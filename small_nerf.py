@@ -115,9 +115,7 @@ class NeRFSmall(nn.Module):
         # Split origin
         input_pts, input_views = torch.split(cam_rays, [self.input_ch, self.input_ch_views], dim=-1)
         
-        # Sigma estimation branch: usually only geometric points (x, y, z) are necessary to estimate the
-        # volumetric density. Indeed, the volumetric density of a point should not be linked to the viewdir.
-        # However, including also viewdir in input, the PSNR improves by 1.5pt ca. at the first epoch. Overfitting?
+        # Sigma estimation branch
         out = input_pts
         for layer in range(self.n_layers):
             out = self.sigma_net[layer](out)
@@ -134,10 +132,11 @@ class NeRFSmall(nn.Module):
             # If the layer is not the last, add relu unit
             if layer != self.n_layers_color - 1:
                 out = F.relu(out, inplace=True)
+            else:
+                out = F.sigmoid(out)
         
         # Extract color and produce inference output
-        color = out
-        outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
+        outputs = torch.cat([out, sigma.unsqueeze(-1)], dim=-1)
         
         return outputs
 

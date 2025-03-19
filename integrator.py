@@ -37,7 +37,7 @@ class Integrator(nn.Module):
         dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
         # Extracts channes values 
-        chs = torch.sigmoid(raw[..., :-1])
+        chs = raw[..., :-1] #torch.sigmoid(raw[..., :-1])
 
         # Compute alphas and cumulative product
         alpha = raw2alpha(raw[..., -1], dists)
@@ -50,7 +50,7 @@ class Integrator(nn.Module):
 
         # Compute integration of weights and densities for depth, as [rays, depth]
         zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
-        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
+        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-6)
 
         # Finally, compute weights sparsity loss
         # TODO: check if try-expect makes sense

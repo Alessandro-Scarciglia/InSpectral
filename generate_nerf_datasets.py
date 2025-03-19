@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_Light/VIS"
-DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_light_v_120.npy"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Training"
+DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_dynamic_vr_180.npy"
 
 
 # Generate K from resolution and FOV
@@ -68,7 +68,7 @@ def main():
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(train_samples)):
 
-        if i % 3:
+        if i % 4:
             continue
 
         # Load the image
