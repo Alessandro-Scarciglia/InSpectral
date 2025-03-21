@@ -130,8 +130,8 @@ def main(folder_name: str):
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
                 
                 # Test 25 views out of 200
-                if m_iter % 12:
-                    continue
+                # if m_iter % 12:
+                #     continue
                 
                 # Generate rays
                 test_c2w = torch.tensor(test_sample["transform_matrix"])

@@ -136,6 +136,8 @@ class NeRFSmall(nn.Module):
             # If the layer is not the last, add relu unit
             if layer != self.n_layers_color - 1:
                 out = F.relu(out, inplace=True)
+            else:
+                out = F.sigmoid(out)
         
         # Extract color and produce inference output
         color = out

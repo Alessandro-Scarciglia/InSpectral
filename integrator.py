@@ -37,7 +37,7 @@ class Integrator(nn.Module):
         dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
         # Extracts channes values 
-        chs = torch.sigmoid(raw[..., :-1])
+        chs = raw[..., :-1]#torch.sigmoid(raw[..., :-1])
 
         # Compute alphas and cumulative product
         alpha = raw2alpha(raw[..., -1], dists)
