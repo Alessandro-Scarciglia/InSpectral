@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/sat_vis_static_vr_180.npy",
-    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_staticlight/VIS_Test"
+    "data_path": "data/preprocessed_data/sat_vis_full_vr_60.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_fulllight/VIS_Test"
 }
 
 
