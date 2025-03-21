@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/sat_vis_full_vr_60.npy",
+    "data_path": "data/preprocessed_data/sat_vis_full_vr_180.npy",
     "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_fulllight/VIS_Test"
 }
 
@@ -26,11 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 5.
+SCENE = 3.
 sampler_parameters = {
     "n_ray_samples": 64,
-    "near": 3.,
-    "far": 21.
+    "near": 9-1,
+    "far": 15+1.
 }
 
 

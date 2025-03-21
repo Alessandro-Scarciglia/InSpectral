@@ -35,10 +35,10 @@ enable_gpus("CUDA")
 
 
 # Configuration
-output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_fulllight/VIS_Test"    # Set your desired output path
+output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_fulllight/VIS_Training"    # Set your desired output path
 image_format = 'PNG'                                                                                      # File format (e.g., 'PNG', 'JPEG')
 resolution = (256, 256)                                                                                   # Resolution of the output images
-num_frames = 5                                                                                           # Number of frames for the satellite's orbit (one frame per degree)
+num_frames = 90                                                                                           # Number of frames for the satellite's orbit (one frame per degree)
 camera_distance = 12                                                                                      # Distance of the camera from the satellite
 json_output_path = os.path.join(output_path, "transforms.json")                                           # JSON output file
 cam_flag = ['V', 'R']
