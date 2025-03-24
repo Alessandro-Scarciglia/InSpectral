@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/sat_vis_dynlight_vr_180.npy",
-    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS"
+    "data_path": "data/preprocessed_data/sat_vis_dynamic_vr_180.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Test"
 }
 
 
@@ -26,11 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 5.
+SCENE = 3.
 sampler_parameters = {
-    "n_ray_samples": 64*2,
-    "near": 3.,
-    "far": 21.
+    "n_ray_samples": 64,
+    "near": 9-1,
+    "far": 15+1
 }
 
 
@@ -63,7 +63,7 @@ sh_parameters = {
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
     "n_layers": 2,
-    "hidden_dim": 256,
+    "hidden_dim": 128,
     "geo_feat_dim": 16,
     "n_layers_light": 2,
     "hidden_dim_light": 128,
@@ -79,13 +79,13 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*16,
+    "training_batch": 32*32*8,
     "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-7,
-    "stop_tv_epoch": 10,
+    "stop_tv_epoch": 30,
     "sparsity_loss_weight": 1e-8,
     "decay_rate": 0.9,
     "decay_steps": 10,

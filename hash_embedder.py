@@ -1,6 +1,7 @@
 # Import modules
 import torch
 import torch.nn as nn
+from parameters_synth import SCENE
 
 torch.manual_seed(1234)
 
@@ -110,7 +111,8 @@ class HashEmbedder(nn.Module):
 
         # Build a binary mask to sign those coordinates out of the bbox.
         # Then, clamp eventual coordinates to the bbox domain limits.
-        keep_mask = coords == torch.max(torch.min(coords, bbox_max), bbox_min)
+        keep_mask = torch.linalg.norm(coords, dim=-1) <= SCENE
+        keep_mask = keep_mask.unsqueeze(-1).expand(-1, 3)
         coords = torch.clamp(coords, min=bbox_min, max=bbox_max)
 
         # Compute for each coordinate the reference voxel extrema
