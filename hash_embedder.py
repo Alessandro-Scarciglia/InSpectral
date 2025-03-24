@@ -1,8 +1,10 @@
 # Import modules
 import torch
 import torch.nn as nn
+from parameters_synth import SCENE
 
 torch.manual_seed(1234)
+
 
 class HashEmbedder(nn.Module):
     def __init__(self,
@@ -110,7 +112,8 @@ class HashEmbedder(nn.Module):
 
         # Build a binary mask to sign those coordinates out of the bbox.
         # Then, clamp eventual coordinates to the bbox domain limits.
-        keep_mask = coords == torch.max(torch.min(coords, bbox_max), bbox_min)
+        keep_mask = torch.linalg.norm(coords, dim=-1) <= SCENE
+        keep_mask = keep_mask.unsqueeze(-1).expand(-1, 3)
         coords = torch.clamp(coords, min=bbox_min, max=bbox_max)
 
         # Compute for each coordinate the reference voxel extrema
@@ -122,7 +125,7 @@ class HashEmbedder(nn.Module):
         voxel_indices = bottom_left_idx.unsqueeze(1) + self.box_offset
         hashed_voxel_indices = self.hash(voxel_indices, log2_hashmap_size)
 
-        return voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices, keep_mask
+        return voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices, keep_mask, coords
 
 
     def forward(self, coords):
@@ -143,7 +146,7 @@ class HashEmbedder(nn.Module):
             resolution = torch.floor(self.low_res * (self.b ** i))
             
             # Get voxels from coordinates
-            voxel_min, voxel_max, hashed_idx, keep_mask = self.get_voxel_vertices(coords,
+            voxel_min, voxel_max, hashed_idx, keep_mask, coords = self.get_voxel_vertices(coords,
                                                                                   self.bbox,
                                                                                   resolution,
                                                                                   self.log2_hashmap_size)

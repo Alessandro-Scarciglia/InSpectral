@@ -13,7 +13,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 256,
     "channels": 1,
-    "device": "cuda:0"
+    "device": "cuda:1"
 }
 
 
