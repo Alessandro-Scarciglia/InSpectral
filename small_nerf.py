@@ -91,7 +91,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension
             # plus the SH encoding dimension. Else, set it to hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim
+                in_dim = 2 * self.input_ch_views + self.geo_feat_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -131,7 +131,7 @@ class NeRFSmall(nn.Module):
             # If it is the last layer, set it to output channel dimension.
             # Else, set it to hidden dimension.
             if layer == self.n_layers_light - 1:
-                out_dim = 1
+                out_dim = self.input_ch_views
             else:
                 out_dim = self.hidden_dim_light
 
@@ -165,29 +165,28 @@ class NeRFSmall(nn.Module):
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
-        
-        # Color estimation branch
-        out = torch.cat([input_views, geo_features], dim=-1)
-        for layer in range(self.n_layers_color):
-            out = self.color_net[layer](out)
-
-            # If the layer is not the last, add relu unit
-            if layer != self.n_layers_color - 1:
-                out = F.relu(out, inplace=True)
-            else:
-                out = F.sigmoid(out)
 
         # Light estimation branch
         geo_features_detached = geo_features.detach()
-        fading_exp = torch.cat([input_sundir, geo_features_detached], dim=-1)
+        fading_coeff = torch.cat([input_sundir, geo_features_detached], dim=-1)
         for layer in range(self.n_layers_light):
-            fading_exp = self.light_net[layer](fading_exp)
-            fading_exp = F.relu(fading_exp, inplace=True)
+            fading_coeff = self.light_net[layer](fading_coeff)
+            
+            if layer != self.n_layers_color - 1:
+                fading_coeff = F.relu(fading_coeff)
         
-        # Extract color and produce inference output
-        fading_exp = torch.clamp(fading_exp, max=10)
-        appearance = out * torch.exp(-fading_exp)
-        outputs = torch.cat([appearance, sigma.unsqueeze(-1)], dim=-1)
+        # Color estimation branch
+        color = torch.cat([input_views, fading_coeff, geo_features], dim=-1)
+        for layer in range(self.n_layers_color):
+            color = self.color_net[layer](color)
+
+            # If the layer is not the last, add relu unit
+            if layer != self.n_layers_color - 1:
+                color = F.relu(color, inplace=True)
+            else:
+                color = F.sigmoid(color)
+            
+        outputs = torch.cat([color, sigma.unsqueeze(-1)], dim=-1)
         
         return outputs
 
