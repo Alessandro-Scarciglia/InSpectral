@@ -35,10 +35,10 @@ enable_gpus("CUDA")
 
 
 # Configuration
-output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS"    # Set your desired output path
+output_path = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Test"    # Set your desired output path
 image_format = 'PNG'                                                                            # File format (e.g., 'PNG', 'JPEG')
 resolution = (256, 256)                                                                         # Resolution of the output images
-num_frames = 180                                                                                # Number of frames for the satellite's orbit (one frame per degree)
+num_frames = 30                                                                                # Number of frames for the satellite's orbit (one frame per degree)
 camera_distance = 12                                                                            # Distance of the camera from the satellite
 json_output_path = os.path.join(output_path, "transforms.json")                                 # JSON output file
 cam_flag = ['V', 'R']
@@ -46,12 +46,14 @@ cam_flag = ['V', 'R']
 
 # Set render settings
 bpy.ops.wm.open_mainfile(filepath="/home/visione/Projects/BlenderScenarios/Sat/cloudsat1.blend")
+
 scene = bpy.context.scene
 scene.render.image_settings.file_format = image_format
 scene.render.resolution_x, scene.render.resolution_y = resolution
 
 
 # Access objects
+sat = bpy.data.objects["Pivot-Layer_0"]
 camera = bpy.data.objects['Camera']
 sun = bpy.data.objects["Light"]
 
@@ -149,14 +151,13 @@ for n_orbit, orbit in enumerate(cam_flag):
         camera.rotation_quaternion = quat_cam
 
         # Modify light direction accordingly
-        sun2world = mathutils.Matrix([
-            [1,               0,                0, 0],
-            [0, math.cos(angle), -math.sin(angle), 0],
-            [0, math.sin(angle),  math.cos(angle), 0],
-            [0,               0,                0, 1]
-        ])
-        quat_sun = sun2world.to_3x3().to_quaternion()
+        quat_sun = mathutils.Quaternion((random.uniform(-1, 1),
+                                         random.uniform(-1, 1),
+                                         random.uniform(-1, 1),
+                                         random.uniform(-1, 1)))
+        quat_sun.normalize()
         sun.rotation_quaternion = quat_sun
+        sun2world = quat_sun.to_matrix().to_4x4()
 
         # Set output file path
         image_filename = f"{n_orbit * num_frames + frame:03d}.png"

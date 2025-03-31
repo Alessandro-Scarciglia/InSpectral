@@ -187,7 +187,7 @@ if __name__ == "__main__":
     for i in range(10):
 
         # Compute pc from model
-        pcd_est = pc_from_model(model_path="training_logs/folder_2025-03-14_14-03-23/epoch_29/chkpt.pt",
+        pcd_est = pc_from_model(model_path="training_logs/folder_2025-03-28_15-51-42/epoch_29/chkpt.pt",
                                 calib_path="/home/visione/Projects/BlenderScenarios/Asteroid/Dataset/Orbit_V_256/IR/transforms.json",
                                 wps_path="data/test_wps.npy",
                                 resolution=(256, 256),

@@ -88,7 +88,7 @@ def main(folder_name: str):
         
         # Iterate through rays samples of the training set
         for n_iter, ray_batch in enumerate(training_dataloader):
-            
+            break
             # Bring batch to target device
             ray_batch = ray_batch.to(cfg_parameters["device"])
 
@@ -114,7 +114,8 @@ def main(folder_name: str):
 
             # Create metrics buffer
             model.eval()
-            test_psnr_set = []
+            test_full_psnr_set, test_obj_psnr_set, test_bkg_psnr_set = list(), list(), list()
+            test_full_mae_set, test_obj_mae_set, test_bkg_mae_set = list(), list(), list()
 
             # Create the epoch folder
             epoch_folder = os.path.join(folder_name, f"epoch_{epoch}")
@@ -144,18 +145,33 @@ def main(folder_name: str):
                 test_sundir = test_sundir.to(cfg_parameters["device"])
 
                 # Retrieve labels
-                target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
+                target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]), 0)
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
-                target_image = torch.tensor(target_image).reshape(-1, 3).to(cfg_parameters["device"])      
+                target_image = torch.tensor(target_image).reshape(-1, cfg_parameters["channels"]).to(cfg_parameters["device"])
+
+                target_depth = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["depth_path"]), 0)
+                target_depth = cv2.resize(target_depth, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
+                target_depth = torch.tensor(target_depth).reshape(-1, 1).to(cfg_parameters["device"])
+
+                obj_mask = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["mask_path"]), 0)
+                obj_mask = cv2.resize(obj_mask, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255.
+                obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
                 # Estimate rendering
                 test_rgb, test_depth, _, _, _ = model(test_rays, test_sundir)
                 
-                # Evaluate test PSNR
-                test_psnr = compute_psnr(img1=test_rgb, img2=target_image)
+                # Evaluate test PSNR and MAE
+                test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask)
+                test_full_mae, test_obj_mae, test_bkg_mae = compute_mae(img1=test_depth.unsqueeze(-1), img2=target_depth, mask=obj_mask)
+            
+                # Collect test batch metrics about PSNR and MAE
+                test_full_psnr_set.append(test_full_psnr)
+                test_obj_psnr_set.append(test_obj_psnr)
+                test_bkg_psnr_set.append(test_bkg_psnr)
 
-                # Split validation output
-                test_psnr_set.append(test_psnr)
+                test_full_mae_set.append(test_full_mae)
+                test_obj_mae_set.append(test_obj_mae)
+                test_bkg_mae_set.append(test_bkg_mae)
 
                 # Reconstruct images and store them
                 frame = test_rgb.detach().cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], cfg_parameters["channels"])
@@ -170,14 +186,21 @@ def main(folder_name: str):
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": trainer_agent.optimizer.state_dict(),
-                "psnr": np.mean(test_psnr_set)
+                "psnr": np.mean(test_full_psnr_set),
+                "mae": np.mean(test_full_mae_set),
+                "psnr_obj": np.mean(test_obj_psnr_set),
+                "mae_obj": np.mean(test_obj_mae_set),
+                "psnr_bkg": np.mean(test_bkg_psnr_set),
+                "mae_bkg": np.mean(test_bkg_mae_set)
             }
             
             torch.save(checkpoint, os.path.join(epoch_folder, "chkpt.pt"))
             
             # Print metrics
             if training_parameters["verbose"]:
-                print(f"Test after epoch {epoch} | avg_PSNR: {np.mean(test_psnr_set):.3f}\n\n")
+                print(f"\nTest after epoch {epoch}:\n"
+                      f"Avg. PSNR: {np.mean(test_full_psnr_set):.3f}  |  Avg. Object PSNR: {np.mean(test_obj_psnr_set):.3f}  |  Avg. Background PSNR: {np.mean(test_bkg_psnr_set):.3f}\n"
+                      f"Avg.  MAE:  {np.mean(test_full_mae_set):.3f}  |  Avg. Object  MAE:  {np.mean(test_obj_mae_set):.3f}  |  Avg. Background  MAE:  {np.mean(test_bkg_mae_set):.3f}\n\n")
 
 
         # Call scheduler at the end of each epoch

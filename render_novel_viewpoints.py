@@ -10,8 +10,8 @@ from rays_generator_synth import RaysGeneratorSynth
 from rendering import NeuralRenderer
 
 # Parameters
-CALIB_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS/transforms.json"
-MODEL_PATH = "training_logs/folder_2025-03-14_14-03-23/epoch_29/chkpt.pt"
+CALIB_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Training/transforms.json"
+MODEL_PATH = "training_logs/folder_2025-03-28_15-51-42/epoch_29/chkpt.pt"
 WPS_PATH =   "data/test_wps.npy"
 
 
@@ -52,7 +52,7 @@ def main():
         # Load data for testing
         with open(dataset_parameters["test_path"] + "/transforms.json", "r") as train_fopen:
             test_df = json.load(train_fopen)
-            wp = torch.tensor(test_df["frames"][309]["transform_matrix"])
+            wp = torch.tensor(test_df["frames"][10]["transform_matrix"])
 
         # Generate rays
         test_rays = raygen(wp).reshape(-1, 6)
@@ -76,7 +76,7 @@ def main():
 
                 # Display
                 cv2.imshow("", frame)
-                cv2.waitKey(10)
+                cv2.waitKey(1)
 
 
 if __name__ == "__main__":
