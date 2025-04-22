@@ -1,6 +1,8 @@
 # Import modules
 from math import exp, log, floor
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from parameters_synth import *
 
 
@@ -57,3 +59,28 @@ def sigma_sparsity_loss(sigmas):
     
     # Using Cauchy Sparsity loss on sigma values
     return torch.log(1.0 + 2*sigmas**2).sum(dim=-1)
+
+class BCEDiceLoss(nn.Module):
+    def __init__(self, alpha=0.5, beta=0.5, smooth=1e-6):
+        super(BCEDiceLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.smooth = smooth
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def forward(self, inputs, targets):
+        # BCE
+        bce_loss = self.bce(inputs, targets)
+
+        # Sigmoid per probabilità
+        inputs = torch.sigmoid(inputs)
+
+        # Flatten
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        # Dice
+        intersection = (inputs * targets).sum()
+        dice_loss = 1 - (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + self.smooth)
+
+        return self.alpha * bce_loss + self.beta * dice_loss

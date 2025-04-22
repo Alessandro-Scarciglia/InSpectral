@@ -88,7 +88,7 @@ def main(folder_name: str):
         
         # Iterate through rays samples of the training set
         for n_iter, ray_batch in enumerate(training_dataloader):
-            break
+            
             # Bring batch to target device
             ray_batch = ray_batch.to(cfg_parameters["device"])
 
@@ -96,17 +96,18 @@ def main(folder_name: str):
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
                 sundir=ray_batch[:, 6:9],
-                labels=ray_batch[:, -1:],
+                labels=ray_batch[:, 9:11],
                 epoch=epoch
             )
 
             # Split losses in tot loss and each component
-            loss, loss_photom, loss_tv, loss_sparsity = losses
+            loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
                             
             # Display loss values
             if training_parameters["verbose"]:
                 print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
                       f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
+                      f"BCE-Dice Loss: {loss_segm.item():.5f} | "
                       f"Tot Loss: {loss.item():.5f}")
 
         # Test model on validation set
@@ -158,7 +159,7 @@ def main(folder_name: str):
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
                 # Estimate rendering
-                test_rgb, test_depth, _, _, _ = model(test_rays, test_sundir)
+                test_rgb, test_depth, _, _ = model(test_rays, test_sundir)
                 
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask)

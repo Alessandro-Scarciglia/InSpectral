@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 # Parameters
-DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_V_256_dynlight/VIS"
+DATA_PATH = "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Training"
 DATA_DST = "/home/visione/Projects/InSpectral/data/preprocessed_data/sat_vis_dynlight_vr_180.npy"
 
 
@@ -69,14 +69,20 @@ def main():
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(train_samples)):
 
-        if i % 2:
-            continue
+        # if i % 2:
+        #     continue
 
         # Load the image
         img_path = os.path.join(DATA_PATH, sample["file_path"])
         img = cv2.imread(img_path, 0)
         img = cv2.resize(img, (256, 256))
         img = np.expand_dims(img, axis=-1)
+
+        # Load the mask
+        mask_path = os.path.join(DATA_PATH, sample["mask_path"])
+        mask = cv2.imread(mask_path, 0)
+        mask = cv2.resize(mask, (256, 256))
+        mask = np.expand_dims(mask, axis=-1)
         
         # Generate rays
         c2w = torch.tensor(sample["transform_matrix"])
@@ -87,8 +93,8 @@ def main():
         bc_sun_dir = np.ones((256, 256, 3)) * sun_dir
 
         # Compose output
-        rays_cfg_labels = np.concatenate([rays, bc_sun_dir, img / 255.], axis=-1)
-        rays_cfg_labels = rays_cfg_labels.reshape(-1, 10)
+        rays_cfg_labels = np.concatenate([rays, bc_sun_dir, img/255., mask/255.], axis=-1)
+        rays_cfg_labels = rays_cfg_labels.reshape(-1, 11)
 
         # Append to dataset list
         dataset += rays_cfg_labels.tolist()

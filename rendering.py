@@ -151,6 +151,6 @@ class NeuralRenderer(nn.Module):
         
         
         # Integrate densities and channels values estimate along each ray
-        chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
+        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6])
 
-        return chs_map, depth_map, sparsity_loss, samples, output
+        return chs_map, depth_map, sparsity_loss, mask

@@ -69,15 +69,15 @@ camera_angle_x = 2 * math.atan(sensor_width / (2 * focal_length))
 # NeRF dataset JSON structure
 nerf_data = {"camera_angle_x": camera_angle_x, "frames": []}
 
+random_quaternion = mathutils.Quaternion((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)))
+random_quaternion.normalize()
+obj2world = random_quaternion.to_matrix().to_4x4()
+
 # For each orbit
 for n_orbit, orbit in enumerate(cam_flag):
     for frame in range(num_frames):
         angle = math.radians(frame * (360 / num_frames))
         print(f"Frame {frame + n_orbit * num_frames}/{num_frames * 2}: Processing...")
-
-        random_quaternion = mathutils.Quaternion((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)))
-        random_quaternion.normalize()
-        obj2world = random_quaternion.to_matrix().to_4x4()
 
         vcam2obj = mathutils.Matrix([
             [1, 0, 0, 0],

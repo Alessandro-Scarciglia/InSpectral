@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/sat_vis_dynamic_vr_180.npy",
+    "data_path": "data/preprocessed_data/sat_vis_dynlight_vr_180.npy",
     "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Test"
 }
 
@@ -80,13 +80,14 @@ nerf_parameters = {
 # Parameter dictionary for training 
 training_parameters = {
     "training_batch": 32*32*8,
-    "epochs": 30,
+    "epochs": 5,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-7,
     "stop_tv_epoch": 15,
     "sparsity_loss_weight": 1e-8,
+    "bce_dice_loss_weight": 1e-1,
     "decay_rate": 0.9,
     "decay_steps": 5,
     "verbose": True
