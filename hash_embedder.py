@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from parameters_synth import SCENE
+from profiler import timing_decorator
 
 torch.manual_seed(1234)
 
@@ -126,7 +127,7 @@ class HashEmbedder(nn.Module):
 
         return voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices, keep_mask
 
-
+    @timing_decorator
     def forward(self, coords):
         '''
         In the forward overriding, coordinates in 3D are injected as input.

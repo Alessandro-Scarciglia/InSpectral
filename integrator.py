@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
 from parameters_synth import *
+from profiler import timing_decorator
 
 
 class Integrator(nn.Module):
@@ -14,6 +15,7 @@ class Integrator(nn.Module):
         # Attributes
         self.device = torch.device(device)
 
+    @timing_decorator
     def forward(self,
                 raw: torch.Tensor,
                 zvals: torch.Tensor,

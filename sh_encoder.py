@@ -1,6 +1,7 @@
 # Import modules
 import torch
 import torch.nn as nn
+from profiler import timing_decorator
 
 
 class SHEncoder(nn.Module):
@@ -56,7 +57,7 @@ class SHEncoder(nn.Module):
             0.6258357354491761
         ], device=device)
 
-
+    @timing_decorator
     def forward(self, input, **kwargs):
 
         # Bring input to target device

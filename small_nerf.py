@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from profiler import timing_decorator
 
 
 class NeRFSmall(nn.Module):
@@ -142,7 +143,7 @@ class NeRFSmall(nn.Module):
 
         return light_net_model
     
-
+    @timing_decorator
     def forward(self,
                 rays: torch.TensorType):
         '''

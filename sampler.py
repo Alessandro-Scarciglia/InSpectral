@@ -1,6 +1,7 @@
 # Import modules
 import torch
 import torch.nn as nn
+from profiler import timing_decorator
 
 
 class Sampler(nn.Module):
@@ -17,7 +18,7 @@ class Sampler(nn.Module):
         self.near = torch.tensor(near, device=device)
         self.far = torch.tensor(far, device=device)
 
-
+    @timing_decorator
     def forward(self,
                 rays_o: torch.Tensor,
                 rays_d: torch.Tensor):

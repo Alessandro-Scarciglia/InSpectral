@@ -13,7 +13,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 256,
     "channels": 1,
-    "device": "cuda:0"
+    "device": "cpu"
 }
 
 
@@ -28,7 +28,7 @@ rays_parameters = {
 # Parameter dictionary for sampler
 SCENE = 3.25
 sampler_parameters = {
-    "n_ray_samples": 64,
+    "n_ray_samples": 32,
     "near": 9-1,
     "far": 15+1
 }
@@ -80,14 +80,15 @@ nerf_parameters = {
 # Parameter dictionary for training 
 training_parameters = {
     "training_batch": 32*32*8,
-    "epochs": 5,
+    "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-7,
-    "stop_tv_epoch": 15,
+    "stop_tv_epoch": 10,
+    "start_seg_epoch": 30-10,
     "sparsity_loss_weight": 1e-8,
-    "bce_dice_loss_weight": 1e-1,
+    "bce_dice_loss_weight": 1.,
     "decay_rate": 0.9,
     "decay_steps": 5,
     "verbose": True

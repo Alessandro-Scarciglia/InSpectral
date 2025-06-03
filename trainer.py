@@ -97,12 +97,19 @@ class Trainer:
 
         # Combinate losses
         loss = loss_photom + \
-            training_parameters["sparsity_loss_weight"] * loss_sparsity + \
-            training_parameters["bce_dice_loss_weight"] * loss_bce_dice
+            training_parameters["sparsity_loss_weight"] * loss_sparsity #+ \
+            #training_parameters["bce_dice_loss_weight"] * loss_bce_dice
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
             loss += training_parameters["tv_loss_weight"] * loss_tv
+
+        # In the last epochs, add the BCE-Dice loss
+        if epoch >= training_parameters["start_seg_epoch"]:
+            loss += training_parameters["bce_dice_loss_weight"] * loss_bce_dice
+
+
+
 
         # Backprop
         loss.backward()
