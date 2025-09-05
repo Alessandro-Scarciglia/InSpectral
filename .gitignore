@@ -162,4 +162,5 @@ cython_debug/
 #.idea/
 
 # Other folders
+inspectral_venv/
 geometry_shadow_decoupling/data/postprocessed_dataset

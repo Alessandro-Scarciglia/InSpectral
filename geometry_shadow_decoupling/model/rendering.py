@@ -1,9 +1,3 @@
-'''
-This class encloses the design of the rendering model.
-It takes as input the rays full info [origin, direction, cfg code] and returns
-channels estimate, depth map and sparsity loss on sigmas distribution in the scene.
-'''
-
 # Import modules
 import torch
 import torch.nn as nn
@@ -12,7 +6,6 @@ import torch.nn as nn
 from sampler import Sampler
 from hash_embedder import HashEmbedder
 from sh_encoder import SHEncoder
-from positional_encoder import PositionalEmbedder
 from small_nerf import NeRFSmall
 from integrator import Integrator
 
@@ -20,8 +13,21 @@ from integrator import Integrator
 from parameters_synth import *
 
 
-# Model class
 class NeuralRenderer(nn.Module):
+    """
+    This class wraps the full NeRF pipeline, from sampling to the image formation (integration). It takes as input
+    the rays full stack and returns channels estimate, depth map and sparsity loss on sigmas distribution in the scene.
+
+    Attributes:
+    ----------
+    Sampler Args: see details in 'sampler.py'
+    Hash Embedder Args: see details in 'hash_embedder.py'
+    SH Encoder Args: see details in 'sh_encoder.py'
+    NeRF Args: see details in 'small_nerf.py'
+
+    device: str
+        it is the target device where to move the computation ("cpu" by default, generic "cuda" or specific "cuda:x").
+    """
     def __init__(self,
                  
                  # Sampler args 
@@ -36,9 +42,6 @@ class NeuralRenderer(nn.Module):
                  log2_hashmap_size: int, 
                  low_res: int,
                  high_res: int,
-                 
-                 # Positional Encoder args
-                 n_freq: int,
 
                  # SH Encoder args
                  input_dim: int,
@@ -65,8 +68,7 @@ class NeuralRenderer(nn.Module):
         # Attributes
         self.device = torch.device(device)
         
-        # Generate a set of samples uniformly distributed along the ray,
-        # within the [near, far] interval.
+        # Generate a set of samples uniformly distributed along the ray, within the [near, far] interval
         self.sampler = Sampler(n_samples=n_ray_samples,
                                near=near,
                                far=far,
@@ -86,8 +88,6 @@ class NeuralRenderer(nn.Module):
                                     degree=degree,
                                     out_dim=out_dim,
                                     device=device)
-        
-        self.pos_encoder = PositionalEmbedder(n_freq=n_freq)
 
         # Infer the density and channel values for each sample along a ray
         self.nerf = NeRFSmall(n_layers=n_layers,
@@ -102,16 +102,38 @@ class NeuralRenderer(nn.Module):
                               out_ch=out_ch,
                               device=device).to(device)
         
-        # Integrates all densities and channels values along a ray to get the 
-        # overall properties of a single pixel.
+        # Integrates all densities and channels values along a ray to get the overall properties of a single pixel
         self.integrator = Integrator(device=device)
-
 
     def forward(
             self,
             rays: torch.TensorType,
             sundir: torch.TensorType
-    ):
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        This method implements the sequence of functions which transform the input rays and the sun direction vector
+        in a full rendered image, along with the scene depth estimation, the sparsity loss and the object mask. 
+
+        Parameters:
+        ----------
+        rays: torch.Tensor[float]
+            it is the stack containing rays origin, directions.
+        sundir: torch.Tensor[float]
+            it is the unit verctor which defines the direction of the light source.
+
+        Results:
+        -------
+        chs_map: torch.Tensor[float]
+            it is the estimate of output channels for each pixel of the image (not for each sample of the rays,
+            but for each pixel since here we also integrate rays!).
+        depth_map: torch.Tensor[float]
+            it is the estimate of depth encoded in [0-1] or [0-255] in the range [near, far].
+        sparsity_loss: torch.Tensor[float]
+            it is a measure of the sparsity of the scene filled volume.
+        mask: torch.Tensor[float]
+            it is the estimate of the segmentation mask for the single object of the scene. It is a raw mask coming from a
+            ReLU activation, thus [o, +inf]. It is grounded in [0, 1] directly in the BCEDiceLoss compiutation.
+        """
     
         # Bring rays to target device
         rays = rays.to(self.device)
