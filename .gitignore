@@ -162,5 +162,4 @@ cython_debug/
 #.idea/
 
 # Other folders
-data/
-training_logs/
+geometry_shadow_decoupling/data/postprocessed_dataset
