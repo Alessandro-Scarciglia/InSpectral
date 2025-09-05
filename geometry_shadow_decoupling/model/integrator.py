@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
 from parameters_synth import *
+from profiler import timing_decorator
 
 
 class Integrator(nn.Module):
@@ -25,6 +26,7 @@ class Integrator(nn.Module):
         # Attributes
         self.device = torch.device(device)
 
+    #@timing_decorator
     def forward(
             self,
             raw: torch.Tensor,
@@ -54,9 +56,11 @@ class Integrator(nn.Module):
             consistent metrics, it is suggested to fix same boundaries as in Blender simulation [8-16].
         sparsity_loss: torch.Tensor[float]
             it is a loss which penalizes uniformity in weights along samples (based on Information Entropy principle).
+        mask: torch.Tensor[float]
+            the segmentation mask obtained from volume density estimates.
         '''
 
-        # Move inputs to target device
+        # Bring inputs to target device
         raw = raw.to(self.device)
         zvals = zvals.to(self.device)
         rays_d = rays_d.to(self.device)
@@ -70,8 +74,7 @@ class Integrator(nn.Module):
         dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
         # Extracts channes values 
-        #TODO: check if needed chs = torch.sigmoid(raw[..., :-1])
-        chs = raw[..., :-1] 
+        chs = raw[..., :cfg_parameters["channels"]]
 
         # Compute alphas and cumulative product
         alpha = raw2alpha(raw[..., -1], dists)
@@ -80,11 +83,12 @@ class Integrator(nn.Module):
 
         # Compute integration weights and channels values, as [rays, chs]
         weights = alpha * cumprod
-        chs_map = torch.sum(weights[..., None] * chs, dim=-2) 
+        mask = torch.clamp(torch.sum(weights, dim=-1), min=0.0, max=1.1).unsqueeze(-1)
+        chs_map = torch.sum(weights[..., None] * chs, dim=-2)
 
         # Compute integration of weights and densities for depth, as [rays, depth]
         zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
-        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-6)
+        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
 
         # Finally, compute weights sparsity loss
         try:
@@ -95,4 +99,4 @@ class Integrator(nn.Module):
             sparsity_loss = torch.tensor(0.0, device=self.device)
             print("Warning: Sparsity Loss cannot be computed.")
 
-        return chs_map, depth_map, sparsity_loss
+        return chs_map, depth_map, sparsity_loss, mask

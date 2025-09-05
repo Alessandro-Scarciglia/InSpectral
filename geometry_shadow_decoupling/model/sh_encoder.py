@@ -4,10 +4,20 @@ import torch.nn as nn
 
 
 class SHEncoder(nn.Module):
+    """
+    This class implements the encoding of rays direction in Spherical Harmonics.
+
+    Attributes:
+    ----------
+    input_dim: int
+        input dimension of the direction (generally it is a versor, this 3x1)
+    degree: int
+        it is the degree expansion of the input in spherical harmonics. Since some parameters are hard-coded,
+        this function supports up to 5 degrees.
+    """
     def __init__(self,
-                 input_dim: int = 3,
-                 degree: int = 4,
-                 out_dim: int = 16,
+                 input_dim: int,
+                 degree: int,
                  device: str = 'cpu'):
         super(SHEncoder, self).__init__()
 
@@ -15,16 +25,17 @@ class SHEncoder(nn.Module):
         self.device = torch.device(device)
         self.input_dim = input_dim
         self.degree = degree
-        self.out_dim = out_dim
+        self.out_dim = degree ** 2
 
-        # Check consistency
-        assert self.input_dim == 3
+        # Check consistency of the degree
         assert self.degree >= 1 and self.degree <= 5
 
         # SH Coefficients
-        self.C0 = torch.tensor(0.28209479177387814, device=device)
+        self.C0 = torch.tensor(0.28209479177387814,
+                               device=device)
 
-        self.C1 = torch.tensor(0.4886025119029199, device=device)
+        self.C1 = torch.tensor(0.4886025119029199,
+                               device=device)
 
         self.C2 = torch.tensor([
             1.0925484305920792,
@@ -56,9 +67,23 @@ class SHEncoder(nn.Module):
             0.6258357354491761
         ], device=device)
 
+    def forward(self,
+                input: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        This function implements the embedding of a tridimensional direction in SH embeddings.
 
-    def forward(self, input, **kwargs):
+        Parameters:
+        ----------
+        input: torch.Tensor[float]
+            a chunk of unitary 3x1 vectors representing rays directions.
 
+        Returns:
+        -------
+        result: torch.Tensor[float]
+            it is the SH representation of the input directions.
+        """
+        
         # Bring input to target device
         input = input.to(self.device)
 
@@ -110,4 +135,3 @@ class SHEncoder(nn.Module):
                         result[..., 24] = self.C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
 
         return result
-    

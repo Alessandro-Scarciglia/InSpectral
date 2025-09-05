@@ -1,6 +1,8 @@
 # Import modules
 from math import exp, log, floor
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from parameters_synth import *
 
 
@@ -55,7 +57,6 @@ def hash(
 
     return hash_indexes
 
-# Discrete version of the intergral of the L1 norm of the embeddings: it promotes smoothness
 def total_variation_loss(
         embeddings: torch.Tensor,
         min_resolution: int,
@@ -134,3 +135,68 @@ def sigma_sparsity_loss(
     sparsity_loss_val = torch.log(1.0 + 2*sigmas**2).sum(dim=-1)
 
     return sparsity_loss_val
+
+
+class BCEDiceLoss(nn.Module):
+    """
+    It is the implementation of the mixed loss between BinaryCrossEntropy and Dice losses. It is a standard
+    for the evaluation of segmentation problem and mixes together the care of precision in classification (BCE) 
+    with the pixel-wise precision of the mask (Dice).
+
+    Attributes:
+    ----------
+    alpha: float
+        it is the weight factor to balance the importance of BCE Loss.
+    beta: float
+        it is the weight factor to balance the importance of Dice Loss.
+    """
+    def __init__(
+            self,
+            alpha: float,
+            beta: float
+    ):
+        super(BCEDiceLoss, self).__init__()
+
+        # Attributes
+        self.alpha = alpha
+        self.beta = beta
+
+        # BCE Loss object
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def forward(
+            self,
+            inputs: torch.Tensor,
+            targets: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        This function takes in input a raw segmentation mask, brings everything in [0, 1] to force a 
+        probability domain, and computes the BCEDice Loss.
+
+        Parameters:
+        ----------
+        inputs: torch.Tensor[float]
+            it is the raw segmentation mask, whose domain is not [0, 1].
+        target: torch.Tensor[float]
+            it is the target segmentation mask (coming from a segmentation model or other methods).
+            In a full supervised fashion it is a label, but in the algorithm logic it is an estimates.
+        """
+
+        # Compute BCE Loss
+        bce_loss = self.bce(inputs, targets)
+
+        # Apply Sigmoid on inputs to restore the probability domain [0, 1]
+        inputs = torch.sigmoid(inputs)
+
+        # Flattening the images
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        # Compute Dice Loss
+        intersection = (inputs * targets).sum()
+        dice_loss = 1 - (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + 1e-6)
+
+        # Compose the losses
+        bcde_dice_loss = self.alpha * bce_loss + self.beta * dice_loss
+
+        return bcde_dice_loss

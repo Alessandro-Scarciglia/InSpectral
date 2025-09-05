@@ -8,7 +8,7 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 
 # Import custom modules
-from losses import total_variation_loss
+from losses import total_variation_loss, BCEDiceLoss
 from metrics import *
 
 # Parameters
@@ -39,6 +39,7 @@ class Trainer:
         self.decay_rate = decay_rate
         self.decay_steps = decay_steps
         self.params = hash_parameters
+        self.bcedice = BCEDiceLoss()
 
         # Lambdas
         self.img2mse = lambda x, y : torch.mean((x - y) ** 2)
@@ -62,21 +63,23 @@ class Trainer:
     def train_one_batch(
             self,
             rays: torch.TensorType,
+            sundir: torch.TensorType,
             labels: torch.TensorType,
             epoch: int
     ):
         
-        # Move labels to device
-        labels = labels.to(self.model.device)
+        # Move labels and sundir to device
+        labels_rgb = labels[:, 0].unsqueeze(-1).to(self.model.device)
+        labels_mask = labels[:, 1].unsqueeze(-1).to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity, _, _ = self.model(rays)
+        chs_map, _, loss_sparsity, mask = self.model(rays, sundir)
 
         # Zero the gradient
         self.optimizer.zero_grad()
 
         # Compute photometric loss on pixel estimate
-        loss_photom = self.img2mse(chs_map, labels)
+        loss_photom = self.img2mse(chs_map, labels_rgb)
 
         # Compute Total Variation Loss on position embeddings
         loss_tv = sum(
@@ -89,19 +92,30 @@ class Trainer:
             )
         )
 
+        # Compute BCE-Dice on mask
+        loss_bce_dice = self.bcedice(mask, labels_mask)
+
         # Combinate losses
         loss = loss_photom + \
-            training_parameters["sparsity_loss_weight"] * loss_sparsity
+            training_parameters["sparsity_loss_weight"] * loss_sparsity #+ \
+            #training_parameters["bce_dice_loss_weight"] * loss_bce_dice
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
             loss += training_parameters["tv_loss_weight"] * loss_tv
 
+        # In the last epochs, add the BCE-Dice loss
+        if epoch >= training_parameters["start_seg_epoch"]:
+            loss += training_parameters["bce_dice_loss_weight"] * loss_bce_dice
+
+
+
+
         # Backprop
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice
 
 
     def valid_one_batch(
@@ -114,7 +128,7 @@ class Trainer:
         labels = labels.to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays)
+        chs_map, _, loss_sparsity, _ = self.model(rays)
 
         # Compute photometric loss on pixel estimate
         loss_photom = self.img2mse(chs_map, labels)

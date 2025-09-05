@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "data/preprocessed_data/sat_vis_full_vr_180.npy",
-    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_fulllight/VIS_Test"
+    "data_path": "data/preprocessed_data/sat_vis_dynlight_vr_180.npy",
+    "test_path": "/home/visione/Projects/BlenderScenarios/Sat/Dataset/Orbit_VR_256_dynlight/VIS_Test"
 }
 
 
@@ -13,7 +13,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 256,
     "channels": 1,
-    "device": "cuda:0"
+    "device": "cpu"
 }
 
 
@@ -26,11 +26,11 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCENE = 3.
+SCENE = 3.25
 sampler_parameters = {
-    "n_ray_samples": 64,
+    "n_ray_samples": 32,
     "near": 9-1,
-    "far": 15+1.
+    "far": 15+1
 }
 
 
@@ -55,8 +55,7 @@ posenc_parameters = {
 # Parameter dictionary for sh embedder
 sh_parameters = {
     "input_dim": 3,
-    "degree": 4,
-    "out_dim": 4**2, # Always square of 'degree' 
+    "degree": 4
 }
 
 
@@ -65,8 +64,10 @@ nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 128,
     "geo_feat_dim": 16,
+    "n_layers_light": 2,
+    "hidden_dim_light": 128,
     "n_layers_color": 2,
-    "hidden_dim_color": 128,
+    "hidden_dim_color": 256,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["out_dim"],
     "out_ch": cfg_parameters["channels"],
@@ -81,9 +82,11 @@ training_parameters = {
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-7,
-    "stop_tv_epoch": 5,
+    "stop_tv_epoch": 10,
+    "start_seg_epoch": 30-10,
     "sparsity_loss_weight": 1e-8,
+    "bce_dice_loss_weight": 1.,
     "decay_rate": 0.9,
-    "decay_steps": 10,
+    "decay_steps": 5,
     "verbose": True
 }
