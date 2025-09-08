@@ -226,7 +226,7 @@ if __name__ == "__main__":
 
     # Create a folder for this training session
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = f"geometry_shadow_decoupling/results/folder_{current_time}"
+    folder_name = f"geometry_shadow_decoupling/arch_1/results/folder_{current_time}"
     os.makedirs(folder_name)
 
     # Launch training loop

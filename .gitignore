@@ -163,5 +163,15 @@ cython_debug/
 
 # Other folders
 inspectral_venv/
-geometry_shadow_decoupling/data/postprocessed_dataset
-geometry_shadow_decoupling/results/
+
+# Folders from sub-project 0
+geometry_shadow_decoupling/arch_0/data/postprocessed_dataset
+geometry_shadow_decoupling/arch_0/results
+
+# Folders from sub-project 1
+geometry_shadow_decoupling/arch_1/data/postprocessed_dataset
+geometry_shadow_decoupling/arch_1/results
+
+# Folders from sub-project 2
+geometry_shadow_decoupling/arch_2/data/postprocessed_dataset
+geometry_shadow_decoupling/arch_2/results
