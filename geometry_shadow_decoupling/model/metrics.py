@@ -2,6 +2,29 @@
 import torch
 
 
+def compute_mse(
+		val1: torch.Tensor,
+		val2: torch.Tensor,
+) -> torch.Tensor:
+	"""
+	This function implements the Mean Square Error (MSE) between two tensors.
+
+	Parameters:
+	----------
+	val1, val2: torch.Tensor, torch.Tensor
+		the two terms of comparison.
+
+	Returns:
+	-------
+	mse_val: torch.Tensor
+		value of the Mean Square Error (MSE).
+	"""
+
+	# Compute MSE
+	mse_val = torch.mean((val1 - val2) ** 2)
+
+	return mse_val
+
 def compute_psnr(
 		img1: torch.TensorType,
 		img2: torch.TensorType,

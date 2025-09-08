@@ -10,7 +10,7 @@ from small_nerf import NeRFSmall
 from integrator import Integrator
 
 # Parameters
-from parameters_synth import *
+from config_parameters import *
 
 
 class NeuralRenderer(nn.Module):

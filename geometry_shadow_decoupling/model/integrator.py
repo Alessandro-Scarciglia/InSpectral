@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
-from parameters_synth import *
+from config_parameters import *
 from profiler import timing_decorator
 
 

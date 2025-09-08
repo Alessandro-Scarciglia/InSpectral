@@ -1,5 +1,7 @@
 {
     "python.analysis.extraPaths": [
-        "./geometry_shadow_decoupling/training"
+        "./geometry_shadow_decoupling/training",
+        "./geometry_shadow_decoupling/model",
+        "./geometry_shadow_decoupling/data"
     ]
 }

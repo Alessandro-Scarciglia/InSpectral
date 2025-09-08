@@ -3,7 +3,7 @@ from math import exp, log, floor
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from parameters_synth import *
+from config_parameters import *
 
 
 # Hashing function

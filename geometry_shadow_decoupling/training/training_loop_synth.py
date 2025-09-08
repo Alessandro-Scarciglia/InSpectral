@@ -1,17 +1,13 @@
-'''
-This file is meant to build the training process of the rendering model.
-'''
-
 # Import custom modules
-from rays_generator_synth import RaysGeneratorSynth
+from rays_generator import RaysGeneratorSynth
 from rendering import NeuralRenderer
-from dataset_synth import NeRFData
+from dataset import NeRFData
 from trainer import Trainer
 from metrics import *
-from generate_nerf_datasets import calculate_intrinsic_matrix
+from generate_postprocessed_dataset import calculate_intrinsic_matrix
 
 # Parameters
-from parameters_synth import *
+from config_parameters import *
 
 # Import standard modules
 import torch
@@ -20,7 +16,6 @@ import cv2
 from torch.utils.data import DataLoader
 import json
 import mathutils
-
 from datetime import datetime
 import os
 import time
@@ -30,19 +25,37 @@ from tqdm import tqdm
 torch.manual_seed(1234)
 
 
-# Training function
-def main(folder_name: str):
+def main(
+        folder_name: str
+) -> None:
+    """
+    This function implements the training loop pipeline. It also includes the validation and test. This function is
+    a wrap of a system which shall be distributed (i.e. it includes the acquisition of pictures, the preprocessing in
+    camera rays, all the initializations, the optimization etc.)
+
+    Parameters:
+    ----------
+    folder_name: str
+        it is the output folder name for the full training. It is generate automatically with the
+        datetime when the script is launched.
+    """
     
-    # Load data for testing
+    # Load the test dataset
     with open(dataset_parameters["test_path"] + "/transforms.json", "r") as train_fopen:
         test_df = json.load(train_fopen)
         test_samples = test_df["frames"]
 
-    # Load calibration matrix
-    K = calculate_intrinsic_matrix(fov=test_df["camera_angle_x"], resolution=(256, 256))
+    # Load camera intrinsics
+    K = calculate_intrinsic_matrix(
+        fov=test_df["camera_angle_x"],
+        resolution=(cfg_parameters["resolution"], cfg_parameters["resolution"])
+    )
 
     # Define the rays generator object
-    raygen = RaysGeneratorSynth(**rays_parameters, K=K)
+    raygen = RaysGeneratorSynth(
+        **rays_parameters,
+        K=K
+    )
 
     # Instantiate the model
     model = NeuralRenderer(
@@ -54,10 +67,10 @@ def main(folder_name: str):
         device=cfg_parameters["device"]
     )
 
-    # Load training and validation datasets
+    # Load Training and Validation datasets
     training_dataset = NeRFData(dataset_parameters["data_path"])
 
-    # Create a dataloader for training and validation datasets
+    # Create a dataloader for Training and Validation datasets
     training_dataloader = DataLoader(
         dataset=training_dataset,
         batch_size=training_parameters["training_batch"],
@@ -100,7 +113,7 @@ def main(folder_name: str):
                 epoch=epoch
             )
 
-            # Split losses in tot loss and each component
+            # Split loss in loss components
             loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
                             
             # Display loss values
@@ -110,7 +123,7 @@ def main(folder_name: str):
                       f"BCE-Dice Loss: {loss_segm.item():.5f} | "
                       f"Tot Loss: {loss.item():.5f}")
 
-        # Test model on validation set
+        # Validate epoch on the Validation dataset
         with torch.no_grad():
 
             # Create metrics buffer
@@ -203,13 +216,11 @@ def main(folder_name: str):
                       f"Avg. PSNR: {np.mean(test_full_psnr_set):.3f}  |  Avg. Object PSNR: {np.mean(test_obj_psnr_set):.3f}  |  Avg. Background PSNR: {np.mean(test_bkg_psnr_set):.3f}\n"
                       f"Avg.  MAE:  {np.mean(test_full_mae_set):.3f}  |  Avg. Object  MAE:  {np.mean(test_obj_mae_set):.3f}  |  Avg. Background  MAE:  {np.mean(test_bkg_mae_set):.3f}\n\n")
 
-
         # Call scheduler at the end of each epoch
         trainer_agent.scheduler.step()
         print(f"Current Learning Rate: {trainer_agent.scheduler.get_last_lr()[0]:.5f}")
 
 
-# Main
 if __name__ == "__main__":
 
     # Create a folder for this training session
