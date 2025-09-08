@@ -10,7 +10,7 @@ from config_parameters import *
 def hash(
         coords: torch.Tensor,
         log2_hashmap_size: int
-) -> torch.Tensor[int]:
+) -> torch.Tensor:
     '''
     This function takes as input multidimensional coordinates (at most 7D) and compress them in a single
     discrete index for a hash table of size 2^log2_hashmap_size. In essence, it maps a multidimensional vector
@@ -64,7 +64,7 @@ def total_variation_loss(
         level: int,
         log2_hashmap_size: int,
         n_levels: int
-) -> torch.Tensor[float]:
+) -> torch.Tensor:
     """
     Total Variation Loss (TVL) is a cost which increases when there are sharp changes in the input values.
     In essence, penalizing the TVL promote the smoothness in the optimization process. As a drawback, if the loss gain
@@ -117,7 +117,7 @@ def total_variation_loss(
 
 def sigma_sparsity_loss(
         sigmas: torch.Tensor
-) -> torch.Tensor[float]:
+) -> torch.Tensor:
     """
     Simple implementation of sparsity loss according to Cauchy.
 
@@ -194,7 +194,7 @@ class BCEDiceLoss(nn.Module):
 
         # Compute Dice Loss
         intersection = (inputs * targets).sum()
-        dice_loss = 1 - (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + 1e-6)
+        dice_loss = 1 - (2. * intersection + 1e-6) / (inputs.sum() + targets.sum() + 1e-6)
 
         # Compose the losses
         bcde_dice_loss = self.alpha * bce_loss + self.beta * dice_loss

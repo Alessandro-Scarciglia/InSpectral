@@ -39,10 +39,10 @@ deactivate nondestructive
 if [ "${OSTYPE:-}" = "cygwin" ] || [ "${OSTYPE:-}" = "msys" ] ; then
     # transform D:\path\to\venv to /d/path/to/venv on MSYS
     # and to /cygdrive/d/path/to/venv on Cygwin
-    export VIRTUAL_ENV=$(cygpath /home/vision/Desktop/InSpectral/inspectral)
+    export VIRTUAL_ENV=$(cygpath /home/vision/Desktop/InSpectral/inspectral_venv)
 else
     # use the path as-is
-    export VIRTUAL_ENV=/home/vision/Desktop/InSpectral/inspectral
+    export VIRTUAL_ENV=/home/vision/Desktop/InSpectral/inspectral_venv
 fi
 
 _OLD_VIRTUAL_PATH="$PATH"
@@ -59,9 +59,9 @@ fi
 
 if [ -z "${VIRTUAL_ENV_DISABLE_PROMPT:-}" ] ; then
     _OLD_VIRTUAL_PS1="${PS1:-}"
-    PS1='(inspectral) '"${PS1:-}"
+    PS1='(inspectral_venv) '"${PS1:-}"
     export PS1
-    VIRTUAL_ENV_PROMPT='(inspectral) '
+    VIRTUAL_ENV_PROMPT='(inspectral_venv) '
     export VIRTUAL_ENV_PROMPT
 fi
 

@@ -25,7 +25,7 @@ class RaysGeneratorSynth(nn.Module):
             height: int,
             width: int,
             num_ch: int,
-            intrinsic_matrix: torch.Tensor
+            intrinsic_matrix: np.ndarray
     ):
         super(RaysGeneratorSynth, self).__init__()
         

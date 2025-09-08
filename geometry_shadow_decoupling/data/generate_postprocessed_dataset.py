@@ -7,7 +7,7 @@ Everything is transformed in a numpy output file .npy where each sample refers t
 # Import modules
 import numpy as np
 import torch
-from rays_generator import RaysGeneratorSynth
+from data.rays_generator import RaysGeneratorSynth
 import json
 import cv2
 import os
@@ -30,7 +30,7 @@ DATA_DST = "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/data/post
 
 def calculate_intrinsic_matrix(
         fov: float,
-        resolution: tuple[int]
+        resolution: tuple[int, int]
 ) -> np.ndarray:
     """
     Calculate the intrinsic camera matrix K for an ideal pinhole camera.

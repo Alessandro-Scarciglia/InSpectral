@@ -3,11 +3,11 @@ import torch
 import torch.nn as nn
 
 # Import custom modules
-from sampler import Sampler
-from hash_embedder import HashEmbedder
-from sh_encoder import SHEncoder
-from small_nerf import NeRFSmall
-from integrator import Integrator
+from model.sampler import Sampler
+from model.hash_embedder import HashEmbedder
+from model.sh_encoder import SHEncoder
+from model.small_nerf import NeRFSmall
+from model.integrator import Integrator
 
 # Parameters
 from config_parameters import *
@@ -46,7 +46,6 @@ class NeuralRenderer(nn.Module):
                  # SH Encoder args
                  input_dim: int,
                  degree: int,
-                 out_dim: int,
 
                  # NeRF args
                  n_layers: int,
@@ -86,7 +85,6 @@ class NeuralRenderer(nn.Module):
         # Generate encoding for view directions (SH or Positional Encoding)
         self.sh_encoder = SHEncoder(input_dim=input_dim,
                                     degree=degree,
-                                    out_dim=out_dim,
                                     device=device)
 
         # Infer the density and channel values for each sample along a ray

@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.nn.functional import relu
 from torch.distributions import Categorical
 from config_parameters import *
-from profiler import timing_decorator
+from model.profiler import timing_decorator
 
 
 class Integrator(nn.Module):

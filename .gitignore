@@ -164,3 +164,4 @@ cython_debug/
 # Other folders
 inspectral_venv/
 geometry_shadow_decoupling/data/postprocessed_dataset
+geometry_shadow_decoupling/results/

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from profiler import timing_decorator
+from model.profiler import timing_decorator
 
 
 class NeRFSmall(nn.Module):
