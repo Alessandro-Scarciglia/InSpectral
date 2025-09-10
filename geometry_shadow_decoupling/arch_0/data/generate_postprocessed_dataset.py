@@ -1,8 +1,8 @@
-'''
+"""
 This script transforms the images and labels of a custom NeRF Dataset to produce another dataset directly 
 injectable in NeRF training. In essence, from images and metadata one obtains rays origin, direction, channels gt and light direction.
 Everything is transformed in a numpy output file .npy where each sample refers to a single pixel.
-'''
+"""
 
 # Import modules
 import numpy as np
@@ -12,16 +12,15 @@ import cv2
 import os
 import time
 from tqdm import tqdm
-import mathutils
 
 # Input parameters to produce the dataset: input folder and output destination
 """
 Guidelines for naming the postprocessed dataset:
-[name_of_original_dataset]_[degree_resolution].npy
-e.g. "colour_256_XY_12_1d5_training_3.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
+[name_of_original_dataset]_[degree_resolution]_[model_architecture].npy
+e.g. "colour_256_XY_12_1d5_training_3_arch0.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
 SRC_DATASET = "colour_256_XY_12_1d5_training"
-ARCH = "arch_1"
+ARCH = "arch_0"
 DEG_RES = 3
 
 DATA_PATH = f"/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/{SRC_DATASET}"
@@ -92,34 +91,24 @@ def main():
     # Store pixels from each training image
     print("Generating Training Dataset...")
     for i, sample in tqdm(enumerate(samples)):
-
+        
         # Jump frames
         if i % DEG_RES:
             continue
-
+        
         # Load the image
         img_path = os.path.join(DATA_PATH, sample["file_path"])
         img = cv2.imread(img_path)
         img = cv2.resize(img, (resolution, resolution))
-
-        # Load the mask
-        mask_path = os.path.join(DATA_PATH, sample["mask_path"])
-        mask = cv2.imread(mask_path, 0)
-        mask = cv2.resize(mask, (resolution, resolution))
-        mask = np.expand_dims(mask, axis=-1)
         
         # Generate rays
         c2w = torch.tensor(sample["transform_matrix"])
         rays = raygen(c2w)
 
-        # Get light direction from quaternion
-        sun_dir = mathutils.Matrix(sample["light_direction"]) @ mathutils.Vector([0, 0, -1])
-        bc_sun_dir = np.ones((resolution, resolution, num_ch)) * sun_dir
-
         # Compose output: each sample is made of 6 elements (3 for rays origin + 3 for rays direction) + 3 elements for
         # light direction + 3 elements for RGB color channels + 1 element for binary mask = 13 elements per pixel.
-        rays_cfg_labels = np.concatenate([rays, bc_sun_dir, img/255., mask/255.], axis=-1)
-        rays_cfg_labels = rays_cfg_labels.reshape(-1, 13)
+        rays_cfg_labels = np.concatenate([rays, img/255.], axis=-1)
+        rays_cfg_labels = rays_cfg_labels.reshape(-1, 9)
 
         # Append to dataset list
         dataset += rays_cfg_labels.tolist()

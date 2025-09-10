@@ -224,11 +224,9 @@ class NeRFSmall(nn.Module):
         rays = rays.to(self.device)
         
         # Split origin
-        input_pts, input_views, input_sundir = torch.split(
-            rays,
-            [self.input_ch, self.input_ch_views, self.input_ch_views],
-            dim=-1
-        )
+        input_pts, input_views, input_sundir = torch.split(rays,
+                                                           [self.input_ch, self.input_ch_views, self.input_ch_views],
+                                                           dim=-1)
         
         # Sigma estimation branch
         out = input_pts

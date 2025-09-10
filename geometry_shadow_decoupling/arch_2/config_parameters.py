@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_1/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_1.npy",
+    "data_path": "geometry_shadow_decoupling/arch_2/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_2.npy",
     "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XY_12_1d5_training"
 }
 
@@ -64,7 +64,7 @@ nerf_parameters = {
     "hidden_dim_color": 256,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["degree"] ** 2,
-    "out_ch": cfg_parameters["channels"],
+    "out_ch": cfg_parameters["channels"] + 1,
 }
 
 

@@ -21,7 +21,7 @@ Guidelines for naming the postprocessed dataset:
 e.g. "colour_256_XY_12_1d5_training_3.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
 SRC_DATASET = "colour_256_XY_12_1d5_training"
-ARCH = "arch_1"
+ARCH = "arch_2"
 DEG_RES = 3
 
 DATA_PATH = f"/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/{SRC_DATASET}"
@@ -70,9 +70,9 @@ def calculate_intrinsic_matrix(
     return intrinsic_matrix
 
 def main():
-    """
+    '''
     Pipeline to produce and store the postprocessed datasets, from NeRF images/metadata to rays.
-    """
+    '''
     
     # Load data
     with open(DATA_PATH + "/transforms.json", "r") as fopen:
@@ -105,7 +105,7 @@ def main():
         # Load the mask
         mask_path = os.path.join(DATA_PATH, sample["mask_path"])
         mask = cv2.imread(mask_path, 0)
-        mask = cv2.resize(mask, (resolution, resolution))
+        mask = cv2.resize(mask, (256, 256))
         mask = np.expand_dims(mask, axis=-1)
         
         # Generate rays

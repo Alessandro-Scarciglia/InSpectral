@@ -109,7 +109,7 @@ def main(
             # Train one batch
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
-                sundir=ray_batch[:, 6:9 ],
+                sundir=ray_batch[:, 6:9],
                 labels=ray_batch[:, 9:],
                 epoch=epoch
             )
@@ -173,8 +173,9 @@ def main(
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
                 # Estimate rendering
-                test_rgb, test_depth, _, _ = model(test_rays, test_sundir)
-
+                test_rgb, test_depth, _ = model(test_rays, test_sundir)
+                test_rgb = test_rgb[:, :cfg_parameters["channels"]]
+                
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask.repeat(1, cfg_parameters["channels"]))
                 test_full_mae, test_obj_mae, test_bkg_mae = compute_mae(img1=test_depth.unsqueeze(-1), img2=target_depth, mask=obj_mask)
@@ -226,7 +227,7 @@ if __name__ == "__main__":
 
     # Create a folder for this training session
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = f"geometry_shadow_decoupling/arch_1/results/folder_{current_time}"
+    folder_name = f"geometry_shadow_decoupling/arch_2/results/folder_{current_time}"
     os.makedirs(folder_name)
 
     # Launch training loop

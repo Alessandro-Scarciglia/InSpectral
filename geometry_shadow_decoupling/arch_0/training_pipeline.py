@@ -1,5 +1,5 @@
 # Import custom modules
-from data.rays_generator import RaysGeneratorSynth
+from model.rays_generator import RaysGeneratorSynth
 from model.rendering import NeuralRenderer
 from data.dataset import NeRFData
 from trainer import Trainer
@@ -15,7 +15,6 @@ import numpy as np
 import cv2
 from torch.utils.data import DataLoader
 import json
-import mathutils
 from datetime import datetime
 import os
 import time
@@ -86,9 +85,7 @@ def main(
         tv_loss_weight=training_parameters["tv_loss_weight"],
         sparsity_loss_weight=training_parameters["sparsity_loss_weight"],
         decay_rate=training_parameters["decay_rate"],
-        decay_steps=training_parameters["decay_steps"],
-        alpha=training_parameters["bce_loss_weight"],
-        beta=training_parameters["dice_loss_weight"]
+        decay_steps=training_parameters["decay_steps"]
     )
 
     # Start timing
@@ -109,19 +106,17 @@ def main(
             # Train one batch
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
-                sundir=ray_batch[:, 6:9 ],
-                labels=ray_batch[:, 9:],
+                labels=ray_batch[:, 6:],
                 epoch=epoch
             )
 
             # Split loss in loss components
-            loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
+            loss, loss_photom, loss_tv, loss_sparsity = losses
                             
             # Display loss values
             if training_parameters["verbose"]:
                 print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
                       f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
-                      f"BCE-Dice Loss: {loss_segm.item():.5f} | "
                       f"Tot Loss: {loss.item():.5f}")
 
         # Validate epoch on the Validation dataset
@@ -154,11 +149,6 @@ def main(
                 test_rays = raygen(test_c2w).reshape(-1, 6)
                 test_rays = test_rays.to(cfg_parameters["device"])
 
-                # Generate sun direction
-                test_sundir = mathutils.Matrix(test_sample["light_direction"]).to_3x3() @ mathutils.Vector([0, 0, -1])
-                test_sundir = torch.tensor(test_sundir).expand(test_rays.shape[0], -1)
-                test_sundir = test_sundir.to(cfg_parameters["device"])
-
                 # Retrieve labels
                 target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
                 target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255. 
@@ -173,8 +163,8 @@ def main(
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
                 # Estimate rendering
-                test_rgb, test_depth, _, _ = model(test_rays, test_sundir)
-
+                test_rgb, test_depth, _ = model(test_rays)
+            
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask.repeat(1, cfg_parameters["channels"]))
                 test_full_mae, test_obj_mae, test_bkg_mae = compute_mae(img1=test_depth.unsqueeze(-1), img2=target_depth, mask=obj_mask)
@@ -226,7 +216,7 @@ if __name__ == "__main__":
 
     # Create a folder for this training session
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = f"geometry_shadow_decoupling/arch_1/results/folder_{current_time}"
+    folder_name = f"geometry_shadow_decoupling/arch_0/results/folder_{current_time}"
     os.makedirs(folder_name)
 
     # Launch training loop

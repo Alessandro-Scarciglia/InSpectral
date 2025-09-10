@@ -3,7 +3,7 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 
 # Import custom modules
-from model.losses import total_variation_loss, BCEDiceLoss
+from model.losses import total_variation_loss
 from model.metrics import *
 
 # Parameters
@@ -48,9 +48,7 @@ class Trainer:
             tv_loss_weight: float,
             sparsity_loss_weight: float,
             decay_rate: float,
-            decay_steps: int,
-            alpha: float,
-            beta: float
+            decay_steps: int
     ):
         
         # Attributes
@@ -63,10 +61,6 @@ class Trainer:
         self.decay_rate = decay_rate
         self.decay_steps = decay_steps
         self.params = hash_parameters
-        self.bcedice = BCEDiceLoss(
-            alpha=alpha,
-            beta=beta
-        )
 
         # Instantiate the optimizer
         # TODO: Investigate on the use of single vs. multiple groups.
@@ -89,7 +83,6 @@ class Trainer:
     def train_one_batch(
             self,
             rays: torch.Tensor,
-            sundir: torch.Tensor,
             labels: torch.Tensor,
             epoch: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -100,8 +93,6 @@ class Trainer:
         ----------
         rays: torch.Tensor[float]
             a tensor containing input rays origins and directions.
-        sundir: torch.Tensor[float]
-            a tensor containing the direction of the light source.
         labels: torch.Tensor[float]
             a tensor  containing the truth for output channels of pixels.
         epoch: int
@@ -117,16 +108,13 @@ class Trainer:
             it is the Total Variation Loss on the embeddings.
         loss_sparsity: torch.Tensor[float]
             it is the sparsity loss on the object 3D geometry.
-        loss_bcedice: torch.Tensor[float]
-            it is the BCEDice loss on the object segmentation mask estimate. 
         """
         
         # Move labels and sundir to device
         labels_rgb = labels[:, :3].to(self.model.device)
-        labels_mask = labels[:, -1].unsqueeze(-1).to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity, mask = self.model(rays, sundir)
+        chs_map, _, loss_sparsity = self.model(rays)
 
         # Zeroing the gradient
         self.optimizer.zero_grad()
@@ -145,9 +133,6 @@ class Trainer:
             )
         )
 
-        # Compute BCEDice loss on segmentation masks
-        loss_bce_dice = self.bcedice(mask, labels_mask)
-
         # Combine the computed losses. A basic loss function is given by the weighted sum of the 
         # photometric loss with the sparsity loss. Optionally, other losses can be added
         loss = loss_photom + \
@@ -157,15 +142,11 @@ class Trainer:
         if epoch <= training_parameters["stop_tv_epoch"]:
             loss += training_parameters["tv_loss_weight"] * loss_tv
 
-        # In the last epochs, add the BCE-Dice loss
-        if epoch >= training_parameters["start_seg_epoch"]:
-            loss += training_parameters["bce_dice_loss_weight"] * loss_bce_dice
-
         # Perform backpropagation
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice
+        return loss, loss_photom, loss_tv, loss_sparsity
 
     def valid_one_batch(
             self,
