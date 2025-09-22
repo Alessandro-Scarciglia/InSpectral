@@ -94,30 +94,30 @@ def main(
     # Training loop
     for epoch in range(training_parameters["epochs"]):
 
-        # Set model in training mode
-        model.train()
+        # # Set model in training mode
+        # model.train()
         
-        # Iterate through rays samples of the training set
-        for n_iter, ray_batch in enumerate(training_dataloader):
+        # # Iterate through rays samples of the training set
+        # for n_iter, ray_batch in enumerate(training_dataloader):
             
-            # Bring batch to target device
-            ray_batch = ray_batch.to(cfg_parameters["device"])
+        #     # Bring batch to target device
+        #     ray_batch = ray_batch.to(cfg_parameters["device"])
 
-            # Train one batch
-            losses = trainer_agent.train_one_batch(
-                rays=ray_batch[:, :6],
-                labels=ray_batch[:, 6:],
-                epoch=epoch
-            )
+        #     # Train one batch
+        #     losses = trainer_agent.train_one_batch(
+        #         rays=ray_batch[:, :6],
+        #         labels=ray_batch[:, 6:],
+        #         epoch=epoch
+        #     )
 
-            # Split loss in loss components
-            loss, loss_photom, loss_tv, loss_sparsity = losses
+        #     # Split loss in loss components
+        #     loss, loss_photom, loss_tv, loss_sparsity = losses
                             
-            # Display loss values
-            if training_parameters["verbose"]:
-                print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
-                      f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
-                      f"Tot Loss: {loss.item():.5f}")
+        #     # Display loss values
+        #     if training_parameters["verbose"]:
+        #         print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
+        #               f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
+        #               f"Tot Loss: {loss.item():.5f}")
 
         # Validate epoch on the Validation dataset
         with torch.no_grad():
@@ -140,8 +140,8 @@ def main(
             # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
                 
-                # Test 30 views out of 360
-                if m_iter % 12:
+                # Test 60 views out of 360
+                if m_iter % 6:
                     continue
                 
                 # Generate rays
@@ -185,7 +185,6 @@ def main(
                 cv2.imwrite(os.path.join(rgb_dst, f"{m_iter:02}.png"), frame * 255)
                 cv2.imwrite(os.path.join(depth_dst, f"{m_iter:02}.png"), depth * 255)
 
-
             # Store checkpoint
             checkpoint = {
                 "epoch": epoch,
@@ -205,7 +204,7 @@ def main(
             if training_parameters["verbose"]:
                 print(f"\nTest after epoch {epoch}:\n"
                       f"Avg. PSNR: {np.mean(test_full_psnr_set):.3f}  |  Avg. Object PSNR: {np.mean(test_obj_psnr_set):.3f}  |  Avg. Background PSNR: {np.mean(test_bkg_psnr_set):.3f}\n"
-                      f"Avg.  MAE:  {np.mean(test_full_mae_set):.3f}  |  Avg. Object  MAE:  {np.mean(test_obj_mae_set):.3f}  |  Avg. Background  MAE:  {np.mean(test_bkg_mae_set):.3f}\n\n")
+                      f"Avg.  MAE:  {np.mean(test_full_mae_set*8):.3f}  |  Avg. Object  MAE:  {np.mean(test_obj_mae_set*8):.3f}  |  Avg. Background  MAE:  {np.mean(test_bkg_mae_set*8):.3f}\n\n")
 
         # Call scheduler at the end of each epoch
         trainer_agent.scheduler.step()

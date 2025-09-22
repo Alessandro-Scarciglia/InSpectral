@@ -45,7 +45,7 @@ def main(
         test_df = json.load(train_fopen)
         test_samples = test_df["frames"]
 
-    # Load camera intrinsics
+    # Compute camera intrinsics for training
     intrinsic_matrix = calculate_intrinsic_matrix(
         fov=test_df["camera_angle_x"],
         resolution=(cfg_parameters["resolution"], cfg_parameters["resolution"])
@@ -141,12 +141,12 @@ def main(
             depth_dst = os.path.join(epoch_folder, "depth")
             os.mkdir(rgb_dst)
             os.mkdir(depth_dst)
-            
+
             # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
-                
+
                 # Test 30 views out of 360
-                if m_iter % 12:
+                if m_iter % 6:
                     continue
                 
                 # Generate rays
@@ -172,8 +172,23 @@ def main(
                 obj_mask = cv2.resize(obj_mask, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255. 
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
-                # Estimate rendering
-                test_rgb, test_depth, _, _ = model(test_rays, test_sundir)
+                # Estimate rendering: split the inference in N steps in chunks of 256x256.
+                # e.g. Given 512, then 512/256=2 => n_iterations = (512/256)^2.
+                # i.e. n_iter = (res//256)^2
+                test_rgb, test_depth = list(), list()
+                
+                for n in range(((cfg_parameters["resolution"] // 256) ** 2)):
+                    test_rgb_n, test_depth_n, _, _ = model(
+                        test_rays[n * (256**2): (n+1) * (256**2), :],
+                        test_sundir[n * (256**2): (n+1) * (256**2), :]
+                    )
+
+                    test_rgb.append(test_rgb_n)
+                    test_depth.append(test_depth_n)
+
+                # Concatenate chunks
+                test_rgb = torch.cat(test_rgb, dim=0).to(cfg_parameters["device"])
+                test_depth = torch.cat(test_depth, dim=0).to(cfg_parameters["device"])
 
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask.repeat(1, cfg_parameters["channels"]))
@@ -194,7 +209,6 @@ def main(
 
                 cv2.imwrite(os.path.join(rgb_dst, f"{m_iter:02}.png"), frame * 255)
                 cv2.imwrite(os.path.join(depth_dst, f"{m_iter:02}.png"), depth * 255)
-
 
             # Store checkpoint
             checkpoint = {
@@ -231,4 +245,3 @@ if __name__ == "__main__":
 
     # Launch training loop
     main(folder_name=folder_name)
-    

@@ -19,9 +19,9 @@ Guidelines for naming the postprocessed dataset:
 [name_of_original_dataset]_[degree_resolution]_[model_architecture].npy
 e.g. "colour_256_XY_12_1d5_training_3_arch0.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
-SRC_DATASET = "colour_256_XY_12_1d5_training"
+SRC_DATASET = "colour_256_XY_YZ_12_0d0_training"
 ARCH = "arch_0"
-DEG_RES = 3
+DEG_RES = 6
 
 DATA_PATH = f"/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/{SRC_DATASET}"
 DATA_DST = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/{ARCH}/data/postprocessed_dataset/{SRC_DATASET}_{DEG_RES}_{ARCH}.npy"

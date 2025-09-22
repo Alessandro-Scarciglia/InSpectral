@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_0/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_0.npy",
-    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XY_12_1d5_training"
+    "data_path": "geometry_shadow_decoupling/arch_0/data/postprocessed_dataset/colour_256_XY_YZ_12_1d5_training_6_arch_0.npy",
+    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XYs_YZs_12_0d0_test"
 }
 
 

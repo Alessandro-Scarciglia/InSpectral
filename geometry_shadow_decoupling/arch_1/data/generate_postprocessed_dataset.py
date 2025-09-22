@@ -20,7 +20,7 @@ Guidelines for naming the postprocessed dataset:
 [name_of_original_dataset]_[degree_resolution].npy
 e.g. "colour_256_XY_12_1d5_training_3.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
-SRC_DATASET = "colour_256_XY_12_1d5_training"
+SRC_DATASET = "colour_512_XY_12_0d0_training"
 ARCH = "arch_1"
 DEG_RES = 3
 

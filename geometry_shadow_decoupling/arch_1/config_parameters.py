@@ -4,16 +4,16 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_1/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_1.npy",
-    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XY_12_1d5_training"
+    "data_path": "geometry_shadow_decoupling/arch_1/data/postprocessed_dataset/colour_512_XY_12_1d5_training_3_arch_1.npy",
+    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_512_XYs_YZs_12_1d5_test"
 }
 
 
 # General setup
 cfg_parameters = {
-    "resolution": 256,
+    "resolution": 512,
     "channels": 3,
-    "device": "cuda"
+    "device": "cuda:0"
 }
 
 
