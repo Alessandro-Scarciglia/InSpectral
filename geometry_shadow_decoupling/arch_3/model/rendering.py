@@ -6,6 +6,7 @@ import torch.nn as nn
 from model.sampler import Sampler
 from model.hash_embedder import HashEmbedder
 from model.sh_encoder import SHEncoder
+from model.appearance_embedder import AppearanceEmbedder
 from model.small_nerf import NeRFSmall
 from model.integrator import Integrator
 
@@ -47,12 +48,14 @@ class NeuralRenderer(nn.Module):
                  input_dim: int,
                  degree: int,
 
+                 # App Embedder args
+                 embeddings_num: int,
+                 embeddings_dim: int,
+
                  # NeRF args
                  n_layers: int,
                  hidden_dim: int,
                  geo_feat_dim: int,
-                 n_layers_light: int,
-                 hidden_dim_light: int,
                  n_layers_color: int,
                  hidden_dim_color: int,
                  input_ch: int,
@@ -86,14 +89,18 @@ class NeuralRenderer(nn.Module):
         self.sh_encoder = SHEncoder(input_dim=input_dim,
                                     degree=degree,
                                     device=device)
+        
+        # Define the embedding table for scene appearance encoding
+        self.app_embedder = AppearanceEmbedder(embeddings_num=embeddings_num,
+                                               embeddings_dim=embeddings_dim,
+                                               device=device)
 
         # Infer the density and channel values for each sample along a ray
         self.nerf = NeRFSmall(n_layers=n_layers,
                               hidden_dim=hidden_dim,
                               geo_feat_dim=geo_feat_dim,
                               n_layers_color=n_layers_color,
-                              n_layers_light=n_layers_light,
-                              hidden_dim_light=hidden_dim_light,
+                              embeddings_dim=embeddings_dim,
                               hidden_dim_color=hidden_dim_color,
                               input_ch=input_ch,
                               input_ch_views=input_ch_views,
@@ -105,8 +112,8 @@ class NeuralRenderer(nn.Module):
 
     def forward(
             self,
-            rays: torch.TensorType,
-            sundir: torch.TensorType
+            rays: torch.Tensor,
+            app_idx: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         This method implements the sequence of functions which transform the input rays and the sun direction vector
@@ -132,10 +139,11 @@ class NeuralRenderer(nn.Module):
             it is the estimate of the segmentation mask for the single object of the scene. It is a raw mask coming from a
             ReLU activation, thus [o, +inf]. It is grounded in [0, 1] directly in the BCEDiceLoss compiutation.
         """
-    
+
         # Bring rays to target device
         rays = rays.to(self.device)
-        sundir = sundir.to(self.device)
+        app_idx = app_idx.to(torch.int32).to(self.device)
+        app_emb = self.app_embedder(app_idx)
 
         # Produce samples along each ray produced from camera
         samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
@@ -146,21 +154,18 @@ class NeuralRenderer(nn.Module):
         viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
         viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
 
-        # Likewise for sun direction
-        sundir = sundir.unsqueeze(1).to(self.device)
-        sundir = sundir.expand(-1, samples.shape[1], -1)
+        app_emb = app_emb.expand(-1, samples.shape[1], -1)
 
-        rays_and_viewdirs = torch.cat([samples, viewdirs], dim=-1)
-        rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6)
-        sundir = sundir.reshape(-1, 3)
+        rays_and_viewdirs = torch.cat([samples, viewdirs, app_emb], dim=-1)
+        rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6 + app_emb.shape[-1])
 
         # Hash-encode the samples coordinates and SH-encode the view directions
         enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
         enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
-        enc_sundir = self.sh_encoder(sundir)
+        enc_app = rays_and_viewdirs[..., 6:]
 
         # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
-        input_vector = torch.cat([enc_points, enc_dirs, enc_sundir], dim=-1).to(self.device)
+        input_vector = torch.cat([enc_points, enc_dirs, enc_app], dim=-1).to(self.device)
         output = self.nerf(input_vector)
 
         # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
@@ -170,6 +175,6 @@ class NeuralRenderer(nn.Module):
         output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
         
         # Integrate densities and channels values estimate along each ray
-        chs_map, depth_map, sparsity_loss = self.integrator(output, zvals, rays[..., 3:6])
-
-        return chs_map, depth_map, sparsity_loss
+        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6])
+        
+        return chs_map, depth_map, sparsity_loss, mask

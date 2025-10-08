@@ -74,7 +74,7 @@ class Integrator(nn.Module):
         dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
         # Extracts channes values 
-        chs = raw[..., :cfg_parameters["channels"]+1]
+        chs = raw[..., :cfg_parameters["channels"]]
 
         # Compute alphas and cumulative product
         alpha = raw2alpha(raw[..., -1], dists)
@@ -83,6 +83,7 @@ class Integrator(nn.Module):
 
         # Compute integration weights and channels values, as [rays, chs]
         weights = alpha * cumprod
+        mask = torch.clamp(torch.sum(weights, dim=-1), min=0.0, max=1.1).unsqueeze(-1)
         chs_map = torch.sum(weights[..., None] * chs, dim=-2)
 
         # Compute integration of weights and densities for depth, as [rays, depth]
@@ -98,4 +99,4 @@ class Integrator(nn.Module):
             sparsity_loss = torch.tensor(0.0, device=self.device)
             print("Warning: Sparsity Loss cannot be computed.")
 
-        return chs_map, depth_map, sparsity_loss
+        return chs_map, depth_map, sparsity_loss, mask

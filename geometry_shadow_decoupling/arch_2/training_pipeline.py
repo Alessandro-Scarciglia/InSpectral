@@ -97,32 +97,32 @@ def main(
     # Training loop
     for epoch in range(training_parameters["epochs"]):
 
-        # # Set model in training mode
-        # model.train()
+        # Set model in training mode
+        model.train()
         
-        # # Iterate through rays samples of the training set
-        # for n_iter, ray_batch in enumerate(training_dataloader):
+        # Iterate through rays samples of the training set
+        for n_iter, ray_batch in enumerate(training_dataloader):
             
-        #     # Bring batch to target device
-        #     ray_batch = ray_batch.to(cfg_parameters["device"])
+            # Bring batch to target device
+            ray_batch = ray_batch.to(cfg_parameters["device"])
 
-        #     # Train one batch
-        #     losses = trainer_agent.train_one_batch(
-        #         rays=ray_batch[:, :6],
-        #         sundir=ray_batch[:, 6:9],
-        #         labels=ray_batch[:, 9:],
-        #         epoch=epoch
-        #     )
+            # Train one batch
+            losses = trainer_agent.train_one_batch(
+                rays=ray_batch[:, :6],
+                sundir=ray_batch[:, 6:9],
+                labels=ray_batch[:, 9:],
+                epoch=epoch
+            )
 
-        #     # Split loss in loss components
-        #     loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
+            # Split loss in loss components
+            loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
                             
-        #     # Display loss values
-        #     if training_parameters["verbose"]:
-        #         print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
-        #               f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
-        #               f"BCE-Dice Loss: {loss_segm.item():.5f} | "
-        #               f"Tot Loss: {loss.item():.5f}")
+            # Display loss values
+            if training_parameters["verbose"]:
+                print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
+                      f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
+                      f"BCE-Dice Loss: {loss_segm.item():.5f} | "
+                      f"Tot Loss: {loss.item():.5f}")
 
         # Validate epoch on the Validation dataset
         with torch.no_grad():
@@ -173,8 +173,6 @@ def main(
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
                 # Estimate rendering
-                print(test_rays.shape, test_sundir.shape)
-                exit()
                 test_rgb, test_depth, _ = model(test_rays, test_sundir)
                 test_rgb = test_rgb[:, :cfg_parameters["channels"]]
                 

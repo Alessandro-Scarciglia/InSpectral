@@ -109,7 +109,7 @@ def main(
             # Train one batch
             losses = trainer_agent.train_one_batch(
                 rays=ray_batch[:, :6],
-                sundir=ray_batch[:, 6:9 ],
+                sundir=ray_batch[:, 6:9],
                 labels=ray_batch[:, 9:],
                 epoch=epoch
             )

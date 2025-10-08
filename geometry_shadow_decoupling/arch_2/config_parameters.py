@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_2/data/postprocessed_dataset/colour_256_XY_YZ_12_1d5_training_6_arch_2.npy",
+    "data_path": "geometry_shadow_decoupling/arch_2/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_2.npy",
     "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XYs_YZs_12_1d5_test"
 }
 
@@ -28,7 +28,7 @@ rays_parameters = {
 # Parameter dictionary for sampler
 SCENE = 3.25
 sampler_parameters = {
-    "n_ray_samples": 32,
+    "n_ray_samples": 64,
     "near": 9-1,
     "far": 15+1
 }

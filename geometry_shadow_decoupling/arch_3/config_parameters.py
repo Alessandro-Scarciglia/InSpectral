@@ -4,7 +4,7 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_2/data/postprocessed_dataset/colour_256_XY_YZ_12_1d5_training_6_arch_2.npy",
+    "data_path": "geometry_shadow_decoupling/arch_3/data/postprocessed_dataset/colour_256_XY_12_1d5_training_3_arch_3.npy",
     "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XYs_YZs_12_1d5_test"
 }
 
@@ -52,37 +52,41 @@ sh_parameters = {
     "degree": 4
 }
 
+# Parameters for appearance embedder
+app_parameters = {
+    "embeddings_num": 120,
+    "embeddings_dim": 5
+}
+
 
 # Parameter dictionary for SmallNeRF 
 nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 128,
     "geo_feat_dim": 16,
-    "n_layers_light": 2,
-    "hidden_dim_light": 128,
     "n_layers_color": 2,
     "hidden_dim_color": 256,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["degree"] ** 2,
-    "out_ch": cfg_parameters["channels"] + 1,
+    "out_ch": cfg_parameters["channels"],
 }
 
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*8,
-    "epochs": 15,
+    "training_batch": 32*32*16,
+    "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-6,
+    "tv_loss_weight": 1e-8,
     "stop_tv_epoch": 10,
     "start_seg_epoch": 0,
     "sparsity_loss_weight": 1e-7,
     "bce_dice_loss_weight": 1e-1,
     "bce_loss_weight": 0.5,
     "dice_loss_weight": 0.5,
-    "decay_rate": 0.9,
+    "decay_rate": 0.99,
     "decay_steps": 5,
     "verbose": True
 }

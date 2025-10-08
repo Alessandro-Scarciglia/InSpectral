@@ -175,7 +175,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension plus the SH encoding dimension.
             # Otherwise, set it to hidden dimension.
             if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim
+                in_dim = self.input_ch_views
             else:
                 in_dim = self.hidden_dim_light
 
@@ -240,8 +240,8 @@ class NeRFSmall(nn.Module):
         sigma, geo_features = out[..., 0], out[..., 1:]
 
         # Light estimation branch
-        geo_features_detached = geo_features.detach()
-        fading_coeff = torch.cat([input_sundir, geo_features_detached], dim=-1)
+        #geo_features_detached = geo_features.detach()
+        fading_coeff = torch.cat([input_sundir], dim=-1)
         for layer in range(self.n_layers_light):
             fading_coeff = self.light_net[layer](fading_coeff)
             

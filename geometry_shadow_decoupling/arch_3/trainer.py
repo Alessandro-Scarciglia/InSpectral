@@ -74,6 +74,7 @@ class Trainer:
             [
                 {'params': self.model.nerf.parameters(), 'lr': self.lr},
                 {'params': self.model.embedder.parameters(), 'lr': self.lr},
+                {'params': self.model.app_embedder.parameters(), 'lr': self.lr}
             ],
             betas=self.betas,
             eps=self.eps
@@ -89,8 +90,8 @@ class Trainer:
     def train_one_batch(
             self,
             rays: torch.Tensor,
-            sundir: torch.Tensor,
             labels: torch.Tensor,
+            app_idx: torch.Tensor,
             epoch: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -122,21 +123,17 @@ class Trainer:
         """
         
         # Move labels and sundir to device
-        labels_rgb = labels[:, :cfg_parameters["channels"]].to(self.model.device)
-        labels_mask = labels[:, -1].to(self.model.device)
+        labels_rgb = labels[:, :3].to(self.model.device)
+        labels_mask = labels[:, -1].unsqueeze(-1).to(self.model.device)
 
         # Forward pass
-        chs_map, _, loss_sparsity = self.model(rays, sundir)
-        
-        # Split output
-        rgb_chs_map = chs_map[:, :cfg_parameters["channels"]]
-        mask = chs_map[:, -1]
+        chs_map, _, loss_sparsity, mask = self.model(rays, app_idx)
 
         # Zeroing the gradient
         self.optimizer.zero_grad()
 
         # Compute Photometric Loss on pixel estimate (MSE)
-        loss_photom = compute_mse(rgb_chs_map, labels_rgb)
+        loss_photom = compute_mse(chs_map, labels_rgb)
 
         # Compute Total Variation Loss (TVL) on hash embeddings
         loss_tv = sum(

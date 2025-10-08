@@ -238,8 +238,9 @@ class NeRFSmall(nn.Module):
         sigma, geo_features = out[..., 0], out[..., 1:]
 
         # Light estimation branch
+        # TODO: change in geo feat detached
         geo_features_detached = geo_features.detach()
-        fading_coeff = torch.cat([input_sundir, geo_features_detached], dim=-1)
+        fading_coeff = torch.cat([input_sundir, geo_features], dim=-1)
         for layer in range(self.n_layers_light):
             fading_coeff = self.light_net[layer](fading_coeff)
             

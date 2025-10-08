@@ -45,7 +45,7 @@ def main(
         test_df = json.load(train_fopen)
         test_samples = test_df["frames"]
 
-    # Load camera intrinsics
+    # Compute camera intrinsics for training
     intrinsic_matrix = calculate_intrinsic_matrix(
         fov=test_df["camera_angle_x"],
         resolution=(cfg_parameters["resolution"], cfg_parameters["resolution"])
@@ -62,6 +62,7 @@ def main(
         **sampler_parameters,
         **hash_parameters,
         **sh_parameters,
+        **app_parameters,
         **nerf_parameters,
         device=cfg_parameters["device"]
     )
@@ -97,32 +98,32 @@ def main(
     # Training loop
     for epoch in range(training_parameters["epochs"]):
 
-        # # Set model in training mode
-        # model.train()
+        # Set model in training mode
+        model.train()
         
-        # # Iterate through rays samples of the training set
-        # for n_iter, ray_batch in enumerate(training_dataloader):
+        # Iterate through rays samples of the training set
+        for n_iter, ray_batch in enumerate(training_dataloader):
             
-        #     # Bring batch to target device
-        #     ray_batch = ray_batch.to(cfg_parameters["device"])
+            # Bring batch to target device
+            ray_batch = ray_batch.to(cfg_parameters["device"])
 
-        #     # Train one batch
-        #     losses = trainer_agent.train_one_batch(
-        #         rays=ray_batch[:, :6],
-        #         sundir=ray_batch[:, 6:9],
-        #         labels=ray_batch[:, 9:],
-        #         epoch=epoch
-        #     )
+            # Train one batch 6+3+1+1
+            losses = trainer_agent.train_one_batch(
+                rays=ray_batch[:, :6],
+                labels=ray_batch[:, 6:10],
+                app_idx=ray_batch[:, 10:],
+                epoch=epoch
+            )
 
-        #     # Split loss in loss components
-        #     loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
+            # Split loss in loss components
+            loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
                             
-        #     # Display loss values
-        #     if training_parameters["verbose"]:
-        #         print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
-        #               f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
-        #               f"BCE-Dice Loss: {loss_segm.item():.5f} | "
-        #               f"Tot Loss: {loss.item():.5f}")
+            # Display loss values
+            if training_parameters["verbose"]:
+                print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
+                      f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
+                      f"BCE-Dice Loss: {loss_segm.item():.5f} | "
+                      f"Tot Loss: {loss.item():.5f}")
 
         # Validate epoch on the Validation dataset
         with torch.no_grad():
@@ -141,23 +142,19 @@ def main(
             depth_dst = os.path.join(epoch_folder, "depth")
             os.mkdir(rgb_dst)
             os.mkdir(depth_dst)
-            
+
             # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
-                
+
                 # Test 30 views out of 360
                 if m_iter % 6:
                     continue
                 
-                # Generate rays
+                # Generate rays and appearance idx
                 test_c2w = torch.tensor(test_sample["transform_matrix"])
                 test_rays = raygen(test_c2w).reshape(-1, 6)
                 test_rays = test_rays.to(cfg_parameters["device"])
-
-                # Generate sun direction
-                test_sundir = mathutils.Matrix(test_sample["light_direction"]).to_3x3() @ mathutils.Vector([0, 0, -1])
-                test_sundir = torch.tensor(test_sundir).expand(test_rays.shape[0], -1)
-                test_sundir = test_sundir.to(cfg_parameters["device"])
+                test_idx = torch.zeros((cfg_parameters["resolution"] * cfg_parameters["resolution"], 1))
 
                 # Retrieve labels
                 target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
@@ -172,12 +169,24 @@ def main(
                 obj_mask = cv2.resize(obj_mask, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255. 
                 obj_mask = torch.tensor(obj_mask).reshape(-1, 1).to(cfg_parameters["device"])
 
-                # Estimate rendering
-                print(test_rays.shape, test_sundir.shape)
-                exit()
-                test_rgb, test_depth, _ = model(test_rays, test_sundir)
-                test_rgb = test_rgb[:, :cfg_parameters["channels"]]
+                # Estimate rendering: split the inference in N steps in chunks of 256x256.
+                # e.g. Given 512, then 512/256=2 => n_iterations = (512/256)^2.
+                # i.e. n_iter = (res//256)^2
+                test_rgb, test_depth = list(), list()
                 
+                for n in range(((cfg_parameters["resolution"] // 256) ** 2)):
+                    test_rgb_n, test_depth_n, _, _ = model(
+                        test_rays[n * (256**2): (n+1) * (256**2), :],
+                        test_idx[n * (256**2): (n+1) * (256**2), :]
+                    )
+
+                    test_rgb.append(test_rgb_n)
+                    test_depth.append(test_depth_n)
+
+                # Concatenate chunks
+                test_rgb = torch.cat(test_rgb, dim=0).to(cfg_parameters["device"])
+                test_depth = torch.cat(test_depth, dim=0).to(cfg_parameters["device"])
+
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask.repeat(1, cfg_parameters["channels"]))
                 test_full_mae, test_obj_mae, test_bkg_mae = compute_mae(img1=test_depth.unsqueeze(-1), img2=target_depth, mask=obj_mask)
@@ -197,7 +206,6 @@ def main(
 
                 cv2.imwrite(os.path.join(rgb_dst, f"{m_iter:02}.png"), frame * 255)
                 cv2.imwrite(os.path.join(depth_dst, f"{m_iter:02}.png"), depth * 255)
-
 
             # Store checkpoint
             checkpoint = {
@@ -229,9 +237,8 @@ if __name__ == "__main__":
 
     # Create a folder for this training session
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = f"geometry_shadow_decoupling/arch_2/results/folder_{current_time}"
+    folder_name = f"geometry_shadow_decoupling/arch_3/results/folder_{current_time}"
     os.makedirs(folder_name)
 
     # Launch training loop
     main(folder_name=folder_name)
-    

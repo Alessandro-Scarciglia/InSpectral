@@ -4,16 +4,16 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_1/data/postprocessed_dataset/colour_512_XY_12_1d5_training_3_arch_1.npy",
-    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_512_XYs_YZs_12_1d5_test"
+    "data_path": "geometry_shadow_decoupling/arch_1/data/postprocessed_dataset/colour_256_XY_YZ_12_1d5_training_6_arch_1.npy",
+    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_256_XYs_YZs_12_1d5_test"
 }
 
 
 # General setup
 cfg_parameters = {
-    "resolution": 512,
+    "resolution": 256,
     "channels": 3,
-    "device": "cuda:0"
+    "device": "cuda:1"
 }
 
 
@@ -61,7 +61,7 @@ nerf_parameters = {
     "n_layers_light": 2,
     "hidden_dim_light": 128,
     "n_layers_color": 2,
-    "hidden_dim_color": 256,
+    "hidden_dim_color": 128,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["degree"] ** 2,
     "out_ch": cfg_parameters["channels"],
@@ -70,12 +70,12 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*8,
-    "epochs": 15,
+    "training_batch": 32*32*16,
+    "epochs": 30,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-6,
+    "tv_loss_weight": 1e-8,
     "stop_tv_epoch": 10,
     "start_seg_epoch": 0,
     "sparsity_loss_weight": 1e-7,

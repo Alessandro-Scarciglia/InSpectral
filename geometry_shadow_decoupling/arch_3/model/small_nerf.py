@@ -44,9 +44,8 @@ class NeRFSmall(nn.Module):
             self,
             n_layers: int,
             hidden_dim: int,
-            n_layers_light: int,
-            hidden_dim_light: int,
             geo_feat_dim: int,
+            embeddings_dim: int,
             n_layers_color: int,
             hidden_dim_color: int,
             input_ch: int,
@@ -62,9 +61,8 @@ class NeRFSmall(nn.Module):
         self.input_ch_views = input_ch_views
         self.n_layers = n_layers
         self.hidden_dim = hidden_dim
-        self.n_layers_light = n_layers_light
-        self.hidden_dim_light = hidden_dim_light
         self.geo_feat_dim = geo_feat_dim
+        self.input_app_dim = embeddings_dim
         self.n_layers_color = n_layers_color
         self.hidden_dim_color = hidden_dim_color
         self.out_ch = out_ch
@@ -74,9 +72,6 @@ class NeRFSmall(nn.Module):
 
         # Build color network
         self.color_net = self.build_color_net()
-
-        # Build light network
-        self.light_net = self.build_light_net()
 
     def build_sigma_net(
             self
@@ -137,7 +132,7 @@ class NeRFSmall(nn.Module):
             # If it is the first layer set it to input channel dimension plus the SH encoding dimension.
             # Otherwise, set it to hidden dimension.
             if layer == 0:
-                in_dim = 2 * self.input_ch_views + self.geo_feat_dim
+                in_dim = self.input_ch_views + self.geo_feat_dim + self.input_app_dim
             else:
                 in_dim = self.hidden_dim_color
 
@@ -153,44 +148,6 @@ class NeRFSmall(nn.Module):
         color_net_model = nn.ModuleList(color_net)
 
         return color_net_model
-    
-    def build_light_net(
-            self
-    ) -> nn.ModuleList:
-        """
-        This method builds the network architecture for the appearance estimation.
-
-        Returns:
-        -------
-        color_net_model: nn.ModuleList
-            it is a ModuleList object which contains all the layers of the designed MLP.
-        """
-
-        # Initialize the list of layers
-        light_net = list()
-
-        # Build the network layer by layer
-        for layer in range(self.n_layers_light):
-
-            # If it is the first layer set it to input channel dimension plus the SH encoding dimension.
-            # Otherwise, set it to hidden dimension.
-            if layer == 0:
-                in_dim = self.input_ch_views + self.geo_feat_dim
-            else:
-                in_dim = self.hidden_dim_light
-
-            # If it is the last layer, set it to output channel dimension, otherwise set it to hidden dimension.
-            if layer == self.n_layers_light - 1:
-                out_dim = self.input_ch_views
-            else:
-                out_dim = self.hidden_dim_light
-
-            light_net.append(nn.Linear(in_dim, out_dim, bias=False))
-
-        # Build the network model as a ModuleList
-        light_net_model = nn.ModuleList(light_net)
-
-        return light_net_model
     
     #@timing_decorator
     def forward(
@@ -224,9 +181,11 @@ class NeRFSmall(nn.Module):
         rays = rays.to(self.device)
         
         # Split origin
-        input_pts, input_views, input_sundir = torch.split(rays,
-                                                           [self.input_ch, self.input_ch_views, self.input_ch_views],
-                                                           dim=-1)
+        input_pts, input_views, input_app = torch.split(
+            rays,
+            [self.input_ch, self.input_ch_views, self.input_app_dim],
+            dim=-1
+        )
         
         # Sigma estimation branch
         out = input_pts
@@ -236,18 +195,9 @@ class NeRFSmall(nn.Module):
 
         # Extraction of sigma and geo features
         sigma, geo_features = out[..., 0], out[..., 1:]
-
-        # Light estimation branch
-        geo_features_detached = geo_features.detach()
-        fading_coeff = torch.cat([input_sundir, geo_features_detached], dim=-1)
-        for layer in range(self.n_layers_light):
-            fading_coeff = self.light_net[layer](fading_coeff)
-            
-            if layer != self.n_layers_color - 1:
-                fading_coeff = F.relu(fading_coeff)
         
         # Color estimation branch
-        color = torch.cat([input_views, fading_coeff, geo_features], dim=-1)
+        color = torch.cat([input_views, geo_features, input_app], dim=-1)
         for layer in range(self.n_layers_color):
             color = self.color_net[layer](color)
 
