@@ -179,3 +179,7 @@ geometry_shadow_decoupling/arch_2/results
 # Folders from sub-project 3
 geometry_shadow_decoupling/arch_3/data/postprocessed_dataset
 geometry_shadow_decoupling/arch_3/results
+
+# Folders from sub-project 3
+geometry_shadow_decoupling/arch_4/data/postprocessed_dataset
+geometry_shadow_decoupling/arch_4/results

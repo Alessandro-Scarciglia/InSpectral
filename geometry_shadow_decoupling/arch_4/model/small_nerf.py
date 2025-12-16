@@ -198,7 +198,6 @@ class NeRFSmall(nn.Module):
         
         # Color estimation branch
         color = torch.cat([input_views, geo_features, input_app], dim=-1)
-        #color = torch.cat([input_views, geo_features], dim=-1)
         for layer in range(self.n_layers_color):
             color = self.color_net[layer](color)
 
