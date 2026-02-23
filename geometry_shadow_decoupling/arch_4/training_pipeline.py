@@ -66,6 +66,15 @@ def main(
         device=cfg_parameters["device"]
     )
 
+    # Load pre-trained weights
+    if training_parameters["pretrained"]:
+        print(f"Resuming pretrained model {training_parameters["checkpoint"]}")
+        checkpoint = torch.load(training_parameters["checkpoint"],
+                                map_location=cfg_parameters["device"],
+                                weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.train()
+
     # Load Training and Validation datasets
     training_dataset = NeRFData(dataset_parameters["data_path"])
 
@@ -115,13 +124,14 @@ def main(
             )
 
             # Split loss in loss components
-            loss, loss_photom, loss_tv, loss_sparsity, loss_segm = losses
+            loss, loss_photom, loss_tv, loss_sparsity, loss_segm, loss_app = losses
                             
             # Display loss values
             if training_parameters["verbose"]:
-                print(f"Epoch: {epoch} | # Iter: {n_iter} | Elapsed time (s): {(time.time()-t_start):.3f} | "
-                      f"Photometric Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Sparsity Loss: {loss_sparsity.item():.5f} | "
-                      f"BCE-Dice Loss: {loss_segm.item():.5f} | "
+                print(f"Epoch: {epoch} | # Iter: {n_iter} | Time (s): {(time.time()-t_start):.3f} | "
+                      f"Ph. Loss: {loss_photom.item():.5f} | TV Loss: {loss_tv.item():.5f} | Spar. Loss: {loss_sparsity.item():.5f} | "
+                      f"Segm. Loss: {loss_segm.item():.5f} | "
+                      f"App Loss: {loss_app.item():.5f} | "
                       f"Tot Loss: {loss.item():.5f}")
 
         # Validate epoch on the Validation dataset
@@ -145,13 +155,17 @@ def main(
             # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
 
-                # Test 18 views out of 360
-                if m_iter % 20:
+                # Test 15 views out of 360
+                if m_iter % 24:
                     continue
                 
                 # Generate rays and appearance idx
                 test_c2w = torch.tensor(test_sample["transform_matrix"])
-                #test_c2w[:3, 3] /= 10.
+
+                # Scale like SCALE factor
+                test_c2w[:3, 3] /= 8.
+
+                # Generate camera rays
                 test_rays = raygen(test_c2w).reshape(-1, 6)
                 test_rays = test_rays.to(cfg_parameters["device"])
                 test_idx = torch.zeros((cfg_parameters["resolution"] * cfg_parameters["resolution"], 1))
@@ -174,10 +188,10 @@ def main(
                 # i.e. n_iter = (res//256)^2
                 test_rgb, test_depth = list(), list()
                 
-                for n in range(((cfg_parameters["resolution"] // 256) ** 2)):
+                for n in range(((cfg_parameters["resolution"] // 64) ** 2)):
                     test_rgb_n, test_depth_n, _, _ = model(
-                        test_rays[n * (256**2): (n+1) * (256**2), :],
-                        test_idx[n * (256**2): (n+1) * (256**2), :]
+                        test_rays[n * (64**2): (n+1) * (64**2), :],
+                        test_idx[n * (64**2): (n+1) * (64**2), :]
                     )
 
                     test_rgb.append(test_rgb_n)
@@ -186,8 +200,6 @@ def main(
                 # Concatenate chunks
                 test_rgb = torch.cat(test_rgb, dim=0).to(cfg_parameters["device"])
                 test_depth = torch.cat(test_depth, dim=0).to(cfg_parameters["device"])
-
-                # TODO: Mask the label image
 
                 # Evaluate test PSNR and MAE
                 test_full_psnr, test_obj_psnr, test_bkg_psnr = compute_psnr(img1=test_rgb, img2=target_image, mask=obj_mask.repeat(1, cfg_parameters["channels"]))

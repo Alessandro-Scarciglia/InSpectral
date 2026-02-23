@@ -19,14 +19,15 @@ Guidelines for naming the postprocessed dataset:
 [name_of_original_dataset]_[degree_resolution].npy
 e.g. "colour_256_XY_12_1d5_training_3.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
-SRC_DATASET = "colour_256_radialboost_20_training"
+SRC_DATASET = "colour_512_radialboost_m30_training"
 ARCH = "arch_4"
-DEG_RES = 3
-MASKED = "unmasked"
+DEG_RES = 4
+MASKED = "masked"
+NOISE_STD = 0.0
 
 DATA_PATH = f"/home/vision/Desktop/Datasets/Landsat8/{SRC_DATASET}"
-DATA_DST = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/{ARCH}/data/postprocessed_dataset/{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}.npy"
-
+DATA_DST = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/{ARCH}/data/postprocessed_dataset/" + \
+    f"{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}_std{str(NOISE_STD)[0]}{str(NOISE_STD)[-1]}.npy"
 
 def calculate_intrinsic_matrix(
         fov: float,
@@ -98,10 +99,6 @@ def main():
         if i % DEG_RES:
             continue
 
-        # # Jump dark region
-        # if i >= 200 and i <= 307:
-        #     continue
-
         # Load the image
         img_path = os.path.join(DATA_PATH, sample["file_path"])
         img = cv2.imread(img_path)
@@ -119,7 +116,8 @@ def main():
 
         # Generate rays
         c2w = torch.tensor(sample["transform_matrix"])
-        #c2w[:3, 3] /= 10
+        c2w[:3, 3] += torch.randn(c2w[:3, 3].shape) * NOISE_STD
+        c2w[:3, 3] /= 8.
         rays = raygen(c2w)
 
         # Create a mask for the image counter
@@ -137,6 +135,9 @@ def main():
         # Append to dataset list
         dataset += rays_cfg_labels.tolist()
         time.sleep(0.1)
+
+        # Increase counter
+        cnt += 1
 
     # Store in a single dataset numpy file
     dataset = np.array(dataset)

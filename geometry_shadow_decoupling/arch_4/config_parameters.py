@@ -4,14 +4,14 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_256_radialboost_20_training_3_masked_arch_4.npy",
-    "test_path": "/home/vision/Desktop/Datasets/Landsat8/colour_256_radialboost_20_training"
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_512_radialboost_m30_training_4_masked_arch_4_std00.npy",
+    "test_path": "/home/vision/Desktop/Datasets/Landsat8/colour_512_radialboost_m30_training"
 }
 
 
 # General setup
 cfg_parameters = {
-    "resolution": 256,
+    "resolution": 512,
     "channels": 3,
     "device": "cuda:0"
 }
@@ -26,7 +26,7 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCALE = 1.0
+SCALE = 8.0
 SCENE = 8 / SCALE
 sampler_parameters = {
     "n_ray_samples": 64,
@@ -55,8 +55,8 @@ sh_parameters = {
 
 # Parameters for appearance embedder
 app_parameters = {
-    "embeddings_num": 120,
-    "embeddings_dim": 8
+    "embeddings_num": 90,
+    "embeddings_dim": 4
 }
 
 
@@ -75,8 +75,8 @@ nerf_parameters = {
 
 # Parameter dictionary for training 
 training_parameters = {
-    "training_batch": 32*32*16,
-    "epochs": 10,
+    "training_batch": 32*32*8,
+    "epochs": 15,
     "lr": 0.001,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
@@ -87,7 +87,10 @@ training_parameters = {
     "bce_dice_loss_weight": 1e-1,
     "bce_loss_weight": 0.5,
     "dice_loss_weight": 0.5,
+    "similarity_loss_weight": 0,
     "decay_rate": 0.9,
     "decay_steps": 5,
-    "verbose": True
+    "verbose": True,
+    "pretrained": False,
+    "checkpoint": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt.pt"
 }

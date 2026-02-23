@@ -85,10 +85,12 @@ class Integrator(nn.Module):
         weights = alpha * cumprod
         mask = torch.clamp(torch.sum(weights, dim=-1), min=0.0, max=1.1).unsqueeze(-1)
         chs_map = torch.sum(weights[..., None] * chs, dim=-2)
+        torch.clamp(chs_map, 0.0, 1.0)
 
         # Compute integration of weights and densities for depth, as [rays, depth]
         zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
         depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
+        torch.clamp(depth_map, 0.0, 1.0)
 
         # Finally, compute weights sparsity loss
         try:

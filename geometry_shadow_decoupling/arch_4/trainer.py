@@ -146,13 +146,25 @@ class Trainer:
             )
         )
 
+        # Compute the sum of cosine similarities in adiacent embeddings
+        # loss_app_sim = torch.mean(
+        #     (self.model.app_embedder.embeddings.weight[1:] - \
+        #     self.model.app_embedder.embeddings.weight[:-1]) ** 2
+        # )
+        loss_app_sim = torch.mean(
+            (self.model.app_embedder.embeddings.weight[2:] + \
+            - 2 * self.model.app_embedder.embeddings.weight[1:-1] + \
+            self.model.app_embedder.embeddings.weight[:-2]) ** 2
+        )
+
         # Compute BCEDice loss on segmentation masks
         loss_bce_dice = self.bcedice(mask, labels_mask)
 
         # Combine the computed losses. A basic loss function is given by the weighted sum of the 
         # photometric loss with the sparsity loss. Optionally, other losses can be added
         loss = loss_photom + \
-            training_parameters["sparsity_loss_weight"] * loss_sparsity
+            training_parameters["sparsity_loss_weight"] * loss_sparsity + \
+            training_parameters["similarity_loss_weight"] * loss_app_sim
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
@@ -166,7 +178,7 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim
 
     def valid_one_batch(
             self,
