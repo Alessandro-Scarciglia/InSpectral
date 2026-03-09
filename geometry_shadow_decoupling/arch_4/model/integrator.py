@@ -31,7 +31,9 @@ class Integrator(nn.Module):
             self,
             raw: torch.Tensor,
             zvals: torch.Tensor,
-            rays_d: torch.Tensor
+            rays_d: torch.Tensor,
+            near: torch.Tensor,
+            far: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
         It computes the accumulated transmittance along each ray.
@@ -88,7 +90,7 @@ class Integrator(nn.Module):
         torch.clamp(chs_map, 0.0, 1.0)
 
         # Compute integration of weights and densities for depth, as [rays, depth]
-        zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
+        zvals = (far - zvals) / (far - near)
         depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
         torch.clamp(depth_map, 0.0, 1.0)
 

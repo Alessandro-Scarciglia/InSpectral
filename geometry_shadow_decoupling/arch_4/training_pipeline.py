@@ -5,6 +5,7 @@ from data.dataset import NeRFData
 from trainer import Trainer
 from model.metrics import *
 from data.generate_postprocessed_dataset import calculate_intrinsic_matrix
+from model.residual_mlp import ResidualMLP
 
 # Parameters
 from config_parameters import *
@@ -66,14 +67,30 @@ def main(
         device=cfg_parameters["device"]
     )
 
+    # Instantiate the residual estimator
+    res_model = ResidualMLP(
+        **res_model_parameters,
+        device=cfg_parameters["device"]
+    )
+
     # Load pre-trained weights
     if training_parameters["pretrained"]:
-        print(f"Resuming pretrained model {training_parameters["checkpoint"]}")
-        checkpoint = torch.load(training_parameters["checkpoint"],
+
+        # Resuming NeRF
+        print(f"Resuming pretrained NeRF model {training_parameters["checkpoint_nerf"]}")
+        checkpoint0 = torch.load(training_parameters["checkpoint"],
                                 map_location=cfg_parameters["device"],
                                 weights_only=False)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        model.load_state_dict(checkpoint0["model_state_dict"])
         model.train()
+
+        # Resuming Residual Estimator
+        print(f"Resuming pretrained Residual model {training_parameters["checkpoint_res"]}")
+        checkpoint1 = torch.load(training_parameters["checkpoint_res"],
+                                map_location=cfg_parameters["device"],
+                                weights_only=False)
+        res_model.load_state_dict(checkpoint1["model_state_dict"])
+        res_model.train()
 
     # Load Training and Validation datasets
     training_dataset = NeRFData(dataset_parameters["data_path"])
@@ -89,7 +106,11 @@ def main(
     # Define the Trainer class
     trainer_agent = Trainer(
         model=model,
+        res_model=res_model,
         lr=training_parameters["lr"],
+        lr_res=training_parameters["res_lr"],
+        lr_app=training_parameters["app_lr"],
+        lr_emb=training_parameters["emb_lr"],
         betas=training_parameters["betas"],
         eps=training_parameters["eps"],
         tv_loss_weight=training_parameters["tv_loss_weight"],
@@ -108,12 +129,34 @@ def main(
 
         # Set model in training mode
         model.train()
+
+        # Adjust samples to training mode
+        model.sampler.n_samples = sampler_parameters["n_ray_samples"]
         
         # Iterate through rays samples of the training set
         for n_iter, ray_batch in enumerate(training_dataloader):
             
             # Bring batch to target device
-            ray_batch = ray_batch.to(cfg_parameters["device"])
+            ray_batch = ray_batch.to(cfg_parameters["device"])        
+
+            # If epoch is larger than a threshold, start optimizing cam poses                
+            if epoch > training_parameters["start_cam_opt"]:
+                
+                # Update camera poses
+                d_rays_o, d_rays_rot = res_model(ray_batch[:, :6])
+
+                orig = ray_batch[:, :3]
+                dirs = ray_batch[:, 3:6]
+                tail = ray_batch[:, 6:]
+
+                # Update origin (no inplace)
+                new_orig = orig + d_rays_o
+
+                # Rotate directions
+                new_dirs = torch.einsum('bij,bj->bi', d_rays_rot, dirs)
+
+                # Rebuild full batch preserving tail
+                ray_batch = torch.cat([new_orig, new_dirs, tail], dim=-1)
 
             # Train one batch 6+3+1+1
             losses = trainer_agent.train_one_batch(
@@ -137,8 +180,13 @@ def main(
         # Validate epoch on the Validation dataset
         with torch.no_grad():
 
-            # Create metrics buffer
+            # Bring model to eval mode
             model.eval()
+
+            # Increase the sampling
+            model.sampler.n_samples = 256
+
+            # Create metrics buffer
             test_full_psnr_set, test_obj_psnr_set, test_bkg_psnr_set = list(), list(), list()
             test_full_mae_set, test_obj_mae_set, test_bkg_mae_set = list(), list(), list()
 
@@ -155,15 +203,15 @@ def main(
             # Loop through the validation set
             for m_iter, test_sample in tqdm(enumerate(test_samples)):
 
-                # Test 15 views out of 360
-                if m_iter % 24:
+                # Test 10 views out of 360
+                if m_iter % 36:
                     continue
                 
                 # Generate rays and appearance idx
                 test_c2w = torch.tensor(test_sample["transform_matrix"])
 
                 # Scale like SCALE factor
-                test_c2w[:3, 3] /= 8.
+                test_c2w[:3, 3] /= SCALE
 
                 # Generate camera rays
                 test_rays = raygen(test_c2w).reshape(-1, 6)
@@ -233,8 +281,21 @@ def main(
                 "psnr_bkg": np.mean(test_bkg_psnr_set),
                 "mae_bkg": np.mean(test_bkg_mae_set)
             }
+
+            checkpoint_res = {
+                "epoch": epoch,
+                "model_state_dict": res_model.state_dict(),
+                "optimizer_state_dict": trainer_agent.optimizer.state_dict(),
+                "psnr": np.mean(test_full_psnr_set),
+                "mae": np.mean(test_full_mae_set),
+                "psnr_obj": np.mean(test_obj_psnr_set),
+                "mae_obj": np.mean(test_obj_mae_set),
+                "psnr_bkg": np.mean(test_bkg_psnr_set),
+                "mae_bkg": np.mean(test_bkg_mae_set)
+            }
             
-            torch.save(checkpoint, os.path.join(epoch_folder, "chkpt.pt"))
+            torch.save(checkpoint, os.path.join(epoch_folder, "chkpt_nerf.pt"))
+            torch.save(checkpoint_res, os.path.join(epoch_folder, "chkpt_res.pt"))
             
             # Print metrics
             if training_parameters["verbose"]:

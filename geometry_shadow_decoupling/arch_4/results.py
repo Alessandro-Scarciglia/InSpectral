@@ -13,7 +13,7 @@ mae_obj_seg, mae_bkg_seg, mae_full_seg = list(), list(), list()
 
 # Iterate through epochs
 for i in range(15):
-    SRC_PATH = f"geometry_shadow_decoupling/arch_4/results/test_32_4/epoch_{i}/chkpt.pt"
+    SRC_PATH = f"geometry_shadow_decoupling/arch_4/results/SPAICE2026/test_32_4/epoch_{i}/chkpt.pt"
     checkpoint = torch.load(
         SRC_PATH,
         map_location="cpu",
@@ -27,7 +27,7 @@ for i in range(15):
 
 # Iterate through epochs
 for i in range(15):
-    SRC_PATH = f"geometry_shadow_decoupling/arch_4/results/test_32_4_seg/epoch_{i}/chkpt.pt"
+    SRC_PATH = f"geometry_shadow_decoupling/arch_4/results/SPAICE2026/test_32_4_seg/epoch_{i}/chkpt.pt"
     checkpoint = torch.load(
         SRC_PATH,
         map_location="cpu",
@@ -43,9 +43,9 @@ for i in range(15):
 plt.figure(0)
 plt.title("Relative MAE on Depth")
 plt.plot(mae_bkg, label="Background w/o")
-plt.plot(mae_obj, label="RSO w/o")
+plt.plot(mae_obj, label="SRO w/o")
 plt.plot(mae_bkg_seg, linestyle='--', color='tab:blue', label="Background w")
-plt.plot(mae_obj_seg, linestyle='--', color='tab:orange', label="RSO w")
+plt.plot(mae_obj_seg, linestyle='--', color='tab:orange', label="SRO w")
 plt.ylabel("Relative MAE [%]")
 plt.legend(
     loc='upper center',

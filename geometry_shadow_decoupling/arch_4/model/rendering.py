@@ -33,8 +33,7 @@ class NeuralRenderer(nn.Module):
                  
                  # Sampler args 
                  n_ray_samples: int,
-                 near: float, 
-                 far: float,
+                 radius: float,
                  
                  # Hash Embedder args
                  bbox: tuple,
@@ -72,8 +71,7 @@ class NeuralRenderer(nn.Module):
         
         # Generate a set of samples uniformly distributed along the ray, within the [near, far] interval
         self.sampler = Sampler(n_samples=n_ray_samples,
-                               near=near,
-                               far=far,
+                               radius=radius,
                                device=device)
         
         # Generate embeddings of an input coordinate
@@ -146,7 +144,7 @@ class NeuralRenderer(nn.Module):
         app_emb = self.app_embedder(app_idx)
 
         # Produce samples along each ray produced from camera
-        samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
+        samples, zvals, near, far = self.sampler(rays[..., :3], rays[..., 3:6])
         samples = samples.to(self.device)
         zvals = zvals.to(self.device)
 
@@ -175,6 +173,6 @@ class NeuralRenderer(nn.Module):
         output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
         
         # Integrate densities and channels values estimate along each ray
-        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6])
+        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6], near, far)
         
         return chs_map, depth_map, sparsity_loss, mask

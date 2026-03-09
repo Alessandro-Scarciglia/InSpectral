@@ -1,6 +1,7 @@
 # Import modules
 import torch
 import torch.nn as nn
+import numpy as np
 from model.profiler import timing_decorator
 
 
@@ -22,8 +23,7 @@ class Sampler(nn.Module):
     def __init__(
             self,
             n_samples: int,
-            near: int,
-            far: int,
+            radius: float,
             device: str = 'cpu'
     ):
         super(Sampler, self).__init__()
@@ -31,8 +31,7 @@ class Sampler(nn.Module):
         # Attributes
         self.n_samples = n_samples
         self.device = torch.device(device)
-        self.near = torch.tensor(near, device=device)
-        self.far = torch.tensor(far, device=device)
+        self.radius = torch.tensor(radius, device=device)
 
     #@timing_decorator
     def forward(self,
@@ -57,6 +56,13 @@ class Sampler(nn.Module):
             it is a tensor containing the depth of each point in the scene from the camera point of view.
         '''
 
+        # Compute distances of rays origin
+        dist = torch.linalg.norm(rays_o, axis=-1)
+
+        # Define near and far
+        near = (dist - self.radius).reshape(-1, 1)
+        far = (dist + self.radius).reshape(-1, 1)
+
         # Bring rays to target device
         rays_o = rays_o.to(self.device)
         rays_d = rays_d.to(self.device)
@@ -65,9 +71,8 @@ class Sampler(nn.Module):
         n_rays = rays_o.shape[0]
 
         # Generate equally spaced n_samples
-        tvals = torch.linspace(0., 1., steps=self.n_samples, device=self.device)
-        zvals = self.near * (1 - tvals) + self.far * tvals
-        zvals = zvals.expand([n_rays, self.n_samples])
+        tvals = torch.linspace(0., 1., steps=self.n_samples, device=self.device).reshape(1, -1)
+        zvals = near * (1 - tvals) + far * tvals
 
         # Add a perturbation to the uniformly spaced samples
         mids = 0.5 * (zvals[..., 1:] + zvals[..., :-1])
@@ -80,4 +85,4 @@ class Sampler(nn.Module):
         # Define 3D points along each ray
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
-        return pts, zvals
+        return pts, zvals, near, far

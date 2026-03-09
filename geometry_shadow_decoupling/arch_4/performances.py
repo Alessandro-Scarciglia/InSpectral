@@ -58,7 +58,7 @@ mae_epochs, psnr_epochs = list(), list()
 # for epoch in range(15):
 
 # Load specific checkpoint of the model
-checkpoint_path = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/test_128_4/epoch_14/chkpt.pt"
+checkpoint_path = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-03-02_12-03-09/epoch_14/chkpt.pt"
 checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
@@ -83,9 +83,9 @@ with torch.no_grad():
         # Generate rays and appearance idx
         test_c2w = torch.tensor(test_sample["transform_matrix"])
         test_rays = raygen(test_c2w).reshape(-1, 6)
-        test_rays[:, :3] /= 10.
+        test_rays[:, :3] /= 12.
         test_rays = test_rays.to(cfg_parameters["device"])
-        test_idx = torch.ones((cfg_parameters["resolution"] * cfg_parameters["resolution"], 1)) * (m_iter / 3)
+        test_idx = torch.ones((cfg_parameters["resolution"] * cfg_parameters["resolution"], 1)) * (m_iter / 4)
 
         # Retrieve labels
         target_image = cv2.imread(os.path.join(dataset_parameters["test_path"], test_sample["file_path"]))
@@ -130,7 +130,7 @@ with torch.no_grad():
         depth = test_depth.detach().cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], 1)
 
         sleep(0.1)
-        cv2.imshow("Frame", depth)
+        cv2.imshow("Frame", frame)
 
         key = cv2.waitKey(0)
         if key == ord("q"):

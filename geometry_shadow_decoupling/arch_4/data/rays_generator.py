@@ -72,6 +72,7 @@ class RaysGeneratorSynth(nn.Module):
         
         # Rotate directions according to c2w
         rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], dim=-1)
+        rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
         
         # Translate camera origin in word frame
         rays_o = c2w[:3, -1].expand(rays_d.shape)

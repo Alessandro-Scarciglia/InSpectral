@@ -42,7 +42,11 @@ class Trainer:
     def __init__(
             self,
             model,
+            res_model,
             lr: float,
+            lr_res: float,
+            lr_emb: float,
+            lr_app: float,
             betas: tuple,
             eps: float,
             tv_loss_weight: float,
@@ -55,7 +59,11 @@ class Trainer:
         
         # Attributes
         self.model = model
+        self.res_model = res_model
         self.lr = lr
+        self.res_lr = lr_res
+        self.emb_lr = lr_emb
+        self.app_lr = lr_app
         self.betas = betas
         self.eps = eps
         self.tot_var_w = tv_loss_weight
@@ -73,8 +81,9 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(
             [
                 {'params': self.model.nerf.parameters(), 'lr': self.lr},
-                {'params': self.model.embedder.parameters(), 'lr': self.lr},
-                {'params': self.model.app_embedder.parameters(), 'lr': self.lr}
+                {'params': self.model.embedder.parameters(), 'lr': self.emb_lr},
+                {'params': self.model.app_embedder.parameters(), 'lr': self.app_lr},
+                {'params': self.res_model.parameters(), 'lr': self.res_lr}
             ],
             betas=self.betas,
             eps=self.eps
@@ -157,6 +166,11 @@ class Trainer:
             self.model.app_embedder.embeddings.weight[:-2]) ** 2
         )
 
+        # Apply a soft loss to embeddings norm
+        loss_app_norm = torch.mean(
+            (torch.linalg.norm(self.model.app_embedder.embeddings.weight, dim=-1) - 1.)**2
+        )
+
         # Compute BCEDice loss on segmentation masks
         loss_bce_dice = self.bcedice(mask, labels_mask)
 
@@ -164,7 +178,8 @@ class Trainer:
         # photometric loss with the sparsity loss. Optionally, other losses can be added
         loss = loss_photom + \
             training_parameters["sparsity_loss_weight"] * loss_sparsity + \
-            training_parameters["similarity_loss_weight"] * loss_app_sim
+            training_parameters["similarity_loss_weight"] * loss_app_sim + \
+            training_parameters["emb_norm_loss_weight"] * loss_app_norm
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
@@ -178,7 +193,7 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim + loss_app_norm
 
     def valid_one_batch(
             self,

@@ -23,11 +23,18 @@ SRC_DATASET = "colour_512_radialboost_m30_training"
 ARCH = "arch_4"
 DEG_RES = 4
 MASKED = "masked"
-NOISE_STD = 0.0
+
+# Noise powers
+STD_WN_POS = 0#1e-2
+STD_DRIFT_POS = 0#1e-3
+STD_WN_ATT = 0#1e-5
+STD_DRIFT_ATT = 0#1e-6
+DELTA_T = 0.25
+N_NAV_UPDATES = int(((90*60)/(360/DEG_RES)) / DELTA_T)
 
 DATA_PATH = f"/home/vision/Desktop/Datasets/Landsat8/{SRC_DATASET}"
 DATA_DST = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/{ARCH}/data/postprocessed_dataset/" + \
-    f"{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}_std{str(NOISE_STD)[0]}{str(NOISE_STD)[-1]}.npy"
+    f"{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}_noise_baseline.npy"
 
 def calculate_intrinsic_matrix(
         fov: float,
@@ -70,6 +77,25 @@ def calculate_intrinsic_matrix(
     
     return intrinsic_matrix
 
+def skew(v):
+    return np.array([
+        [0,     -v[2],  v[1]],
+        [v[2],   0,    -v[0]],
+        [-v[1],  v[0],  0]
+    ])
+
+def rodrigues(delta_theta):
+    theta = np.linalg.norm(delta_theta)
+    K = skew(delta_theta)
+    
+    if theta < 1e-10:
+        return np.eye(3)
+    
+    A = np.sin(theta)/theta
+    B = (1 - np.cos(theta))/(theta**2)
+    
+    return np.eye(3) + A*K + B*(K @ K)
+
 def main():
     """
     Pipeline to produce and store the postprocessed datasets, from NeRF images/metadata to rays.
@@ -90,6 +116,9 @@ def main():
     # Dataset object
     dataset = list()
     cnt = 0
+
+    # Initialize time-correlated noise
+    bp, br = 0., 0.
 
     # Store pixels from each training image
     print("Generating Training Dataset...")
@@ -114,10 +143,44 @@ def main():
         if MASKED == 'masked':
             img = np.bitwise_and(img, mask)
 
-        # Generate rays
+        # Load camera-2-world matrix
         c2w = torch.tensor(sample["transform_matrix"])
-        c2w[:3, 3] += torch.randn(c2w[:3, 3].shape) * NOISE_STD
-        c2w[:3, 3] /= 8.
+
+        # Compute time-correlated noise for position
+        for _ in range(N_NAV_UPDATES):
+            wp = np.random.normal(0, STD_DRIFT_POS, 3)
+            bp = bp + wp
+
+        
+        # Compute white noise for position
+        epsp = np.random.normal(0, STD_WN_POS, 3)
+
+        # Sum to original position
+        c2w[:3, 3] += (bp + epsp)
+        #print(f"Err Pos: {np.linalg.norm(bp+epsp)}")
+
+        # Compute time-correlated noise for rotation
+        for _ in range(N_NAV_UPDATES):
+            wr = np.random.normal(0, STD_DRIFT_ATT, 3)
+            br = br + wr
+
+        # Compute white noise for rotation
+        epsr = np.random.normal(0, STD_WN_ATT, 3)
+
+        # Compute the delta theta perturbation 
+        delta_theta = br + epsr
+        #print(f"Err Att: {np.linalg.norm(br+epsr)*180/np.pi}")
+
+        # Compute relative rotation
+        rotm_noise = rodrigues(delta_theta)
+
+        # Apply to rotation
+        c2w[:3, :3] = c2w[:3, :3] @ rotm_noise
+        
+        # Scale down distance of the scene
+        c2w[:3, 3] /= 7.5
+
+        # Generate rays
         rays = raygen(c2w)
 
         # Create a mask for the image counter
