@@ -26,8 +26,8 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCALE = 7.5
-SCENE = 7.5 / SCALE
+SCALE = 7.0
+SCENE = 7.0 / SCALE
 sampler_parameters = {
     "n_ray_samples": 64,
     "radius": SCENE * 1.73,
@@ -55,7 +55,7 @@ sh_parameters = {
 # Parameters for appearance embedder
 app_parameters = {
     "embeddings_num": 90,
-    "embeddings_dim": 8
+    "embeddings_dim": 4
 }
 
 
@@ -78,7 +78,7 @@ res_model_parameters = {
     "input_ch": 6,
     "output_ch": 6,
     "lin_range": 0.5 / SCALE,
-    "ang_range": 0.5 * (torch.pi/180)
+    "ang_range": 0.03 * (torch.pi/180)
 }
 
 
@@ -90,7 +90,7 @@ training_parameters = {
     "res_lr": 1e-2,
     "app_lr": 1e-4,
     "emb_lr": 1e-2,
-    "start_cam_opt": 10,
+    "start_cam_opt": 3,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-8,
@@ -100,10 +100,10 @@ training_parameters = {
     "bce_dice_loss_weight": 5e-1,
     "bce_loss_weight": 0.5,
     "dice_loss_weight": 0.5,
-    "similarity_loss_weight": 1e-1,
+    "similarity_loss_weight": 1e-2,
     "emb_norm_loss_weight": 1e-1,
     "decay_rate": 0.99,
-    "decay_steps": 5,
+    "decay_steps": 3,
     "verbose": True,
     "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt_nerf.pt",

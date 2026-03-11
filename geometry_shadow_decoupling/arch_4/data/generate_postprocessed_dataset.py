@@ -25,10 +25,10 @@ DEG_RES = 4
 MASKED = "masked"
 
 # Noise powers
-STD_WN_POS = 0#1e-2
-STD_DRIFT_POS = 0#1e-3
+STD_WN_POS = 0#1e-1
+STD_DRIFT_POS = 1e-3
 STD_WN_ATT = 0#1e-5
-STD_DRIFT_ATT = 0#1e-6
+STD_DRIFT_ATT = 1e-6
 DELTA_T = 0.25
 N_NAV_UPDATES = int(((90*60)/(360/DEG_RES)) / DELTA_T)
 
@@ -157,7 +157,7 @@ def main():
 
         # Sum to original position
         c2w[:3, 3] += (bp + epsp)
-        #print(f"Err Pos: {np.linalg.norm(bp+epsp)}")
+        print(f"Err Pos: {np.linalg.norm(bp+epsp)}")
 
         # Compute time-correlated noise for rotation
         for _ in range(N_NAV_UPDATES):
@@ -169,7 +169,7 @@ def main():
 
         # Compute the delta theta perturbation 
         delta_theta = br + epsr
-        #print(f"Err Att: {np.linalg.norm(br+epsr)*180/np.pi}")
+        print(f"Err Att: {np.linalg.norm(br+epsr)*180/np.pi}")
 
         # Compute relative rotation
         rotm_noise = rodrigues(delta_theta)
@@ -178,7 +178,7 @@ def main():
         c2w[:3, :3] = c2w[:3, :3] @ rotm_noise
         
         # Scale down distance of the scene
-        c2w[:3, 3] /= 7.5
+        c2w[:3, 3] /= 7
 
         # Generate rays
         rays = raygen(c2w)

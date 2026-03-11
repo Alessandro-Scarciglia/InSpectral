@@ -178,8 +178,8 @@ class Trainer:
         # photometric loss with the sparsity loss. Optionally, other losses can be added
         loss = loss_photom + \
             training_parameters["sparsity_loss_weight"] * loss_sparsity + \
-            training_parameters["similarity_loss_weight"] * loss_app_sim + \
-            training_parameters["emb_norm_loss_weight"] * loss_app_norm
+            training_parameters["similarity_loss_weight"] * loss_app_sim
+            #training_parameters["emb_norm_loss_weight"] * loss_app_norm
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
@@ -193,7 +193,7 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim + loss_app_norm
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim #+ loss_app_norm
 
     def valid_one_batch(
             self,
