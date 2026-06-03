@@ -16,163 +16,103 @@ from config_parameters import *
 
 class NeuralRenderer(nn.Module):
     """
-    This class wraps the full NeRF pipeline, from sampling to the image formation (integration). It takes as input
-    the rays full stack and returns channels estimate, depth map and sparsity loss on sigmas distribution in the scene.
-
-    Attributes:
-    ----------
-    Sampler Args: see details in 'sampler.py'
-    Hash Embedder Args: see details in 'hash_embedder.py'
-    SH Encoder Args: see details in 'sh_encoder.py'
-    NeRF Args: see details in 'small_nerf.py'
-
-    device: str
-        it is the target device where to move the computation ("cpu" by default, generic "cuda" or specific "cuda:x").
+    This class wraps the full NeRF pipeline, from sampling to the image formation (integration).
     """
     def __init__(self,
-                 
-                 # Sampler args 
-                 n_ray_samples: int,
-                 radius: float,
-                 
-                 # Hash Embedder args
-                 bbox: tuple,
-                 n_levels: int,
-                 n_features_per_level: int,
-                 log2_hashmap_size: int, 
-                 low_res: int,
-                 high_res: int,
-
-                 # SH Encoder args
-                 input_dim: int,
-                 degree: int,
-
-                 # App Embedder args
-                 embeddings_num: int,
-                 embeddings_dim: int,
-
-                 # NeRF args
-                 n_layers: int,
-                 hidden_dim: int,
-                 geo_feat_dim: int,
-                 n_layers_color: int,
-                 hidden_dim_color: int,
-                 input_ch: int,
-                 input_ch_views: int,
-                 out_ch: int,
-
-                 # Target device
-                 device: str = 'cpu'):
+                 n_ray_samples: int, near: float, far: float, bbox: tuple,
+                 n_levels: int, n_features_per_level: int, log2_hashmap_size: int, 
+                 low_res: int, high_res: int, input_dim: int, degree: int,
+                 embeddings_num: int, embeddings_dim: int, n_layers: int,
+                 hidden_dim: int, geo_feat_dim: int, n_layers_color: int,
+                 hidden_dim_color: int, input_ch: int, input_ch_views: int,
+                 out_ch: int, device: str = 'cpu'):
         
         super(NeuralRenderer, self).__init__()
 
         # Attributes
         self.device = torch.device(device)
         
-        # Generate a set of samples uniformly distributed along the ray, within the [near, far] interval
-        self.sampler = Sampler(n_samples=n_ray_samples,
-                               radius=radius,
-                               device=device)
+        self.sampler = Sampler(n_samples=n_ray_samples, near=near, far=far, device=device)
         
-        # Generate embeddings of an input coordinate
-        self.embedder = HashEmbedder(bbox=bbox,
-                                     n_levels=n_levels,
-                                     n_features_per_level=n_features_per_level,
-                                     log2_hashmap_size=log2_hashmap_size,
-                                     low_resolution=low_res,
-                                     high_resolution=high_res,
-                                     device=device)
+        self.embedder = HashEmbedder(bbox=bbox, n_levels=n_levels, n_features_per_level=n_features_per_level,
+                                     log2_hashmap_size=log2_hashmap_size, low_resolution=low_res,
+                                     high_resolution=high_res, device=device)
         
-        # Generate encoding for view directions (SH or Positional Encoding)
-        self.sh_encoder = SHEncoder(input_dim=input_dim,
-                                    degree=degree,
-                                    device=device)
+        self.sh_encoder = SHEncoder(input_dim=input_dim, degree=degree, device=device)
         
-        # Define the embedding table for scene appearance encoding
-        self.app_embedder = AppearanceEmbedder(embeddings_num=embeddings_num,
-                                               embeddings_dim=embeddings_dim,
-                                               device=device)
+        self.app_embedder = AppearanceEmbedder(embeddings_num=embeddings_num, embeddings_dim=embeddings_dim, device=device)
 
-        # Infer the density and channel values for each sample along a ray
-        self.nerf = NeRFSmall(n_layers=n_layers,
-                              hidden_dim=hidden_dim,
-                              geo_feat_dim=geo_feat_dim,
-                              n_layers_color=n_layers_color,
-                              embeddings_dim=embeddings_dim,
-                              hidden_dim_color=hidden_dim_color,
-                              input_ch=input_ch,
-                              input_ch_views=input_ch_views,
-                              out_ch=out_ch,
-                              device=device).to(device)
+        self.nerf = NeRFSmall(n_layers=n_layers, hidden_dim=hidden_dim, geo_feat_dim=geo_feat_dim,
+                              n_layers_color=n_layers_color, embeddings_dim=embeddings_dim,
+                              hidden_dim_color=hidden_dim_color, input_ch=input_ch,
+                              input_ch_views=input_ch_views, out_ch=out_ch, device=device).to(device)
         
-        # Integrates all densities and channels values along a ray to get the overall properties of a single pixel
-        self.integrator = Integrator(device=device)
+        self.integrator = Integrator(near=near, far=far, device=device)
 
     def forward(
             self,
             rays: torch.Tensor,
-            app_idx: torch.Tensor
+            app_idx: torch.Tensor,
+            epoch: int = None,
+            n_iter: int = None,
+            max_steps: int = None,
+            len_dl: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        This method implements the sequence of functions which transform the input rays and the sun direction vector
-        in a full rendered image, along with the scene depth estimation, the sparsity loss and the object mask. 
-
-        Parameters:
-        ----------
-        rays: torch.Tensor[float]
-            it is the stack containing rays origin, directions.
-        sundir: torch.Tensor[float]
-            it is the unit verctor which defines the direction of the light source.
-
-        Results:
-        -------
-        chs_map: torch.Tensor[float]
-            it is the estimate of output channels for each pixel of the image (not for each sample of the rays,
-            but for each pixel since here we also integrate rays!).
-        depth_map: torch.Tensor[float]
-            it is the estimate of depth encoded in [0-1] or [0-255] in the range [near, far].
-        sparsity_loss: torch.Tensor[float]
-            it is a measure of the sparsity of the scene filled volume.
-        mask: torch.Tensor[float]
-            it is the estimate of the segmentation mask for the single object of the scene. It is a raw mask coming from a
-            ReLU activation, thus [o, +inf]. It is grounded in [0, 1] directly in the BCEDiceLoss compiutation.
+        Sequence of functions turning input rays into a rendered pixel map, depth map, 
+        sparsity loss, and segmentation mask.
         """
-
-        # Bring rays to target device
+        # Bring basic inputs to target device immediately
         rays = rays.to(self.device)
         app_idx = app_idx.to(torch.int32).to(self.device)
-        app_emb = self.app_embedder(app_idx)
+        
+        # Extract appearance embedding
+        app_emb = self.app_embedder(app_idx)  # Shape: [B, 1, emb_dim] o [B, emb_dim]
 
-        # Produce samples along each ray produced from camera
-        samples, zvals, near, far = self.sampler(rays[..., :3], rays[..., 3:6])
-        samples = samples.to(self.device)
-        zvals = zvals.to(self.device)
+        # Produce 3D point samples along each camera ray
+        samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
+        
+        n_rays, n_samples, _ = samples.shape
 
-        # Concatenate points with view direction and kill one dimension
-        viewdirs = rays[..., 3:6].unsqueeze(1).to(self.device)
-        viewdirs = viewdirs.expand(-1, samples.shape[1], -1)
+        # --- EFFICIENZA: EVITIAMO IL MEGA-RESHAPE PREMATURO ---
+        # Estraiamo le coordinate dei punti pronte per l'Hash Embedder
+        flat_points = samples.reshape(-1, 3)
 
-        app_emb = app_emb.expand(-1, samples.shape[1], -1)
+        # Gestione flessibile e robusta dello step temporale per il Coarse-to-Fine
+        if epoch is not None and n_iter is not None and len_dl is not None:
+            current_step = (epoch * len_dl) + n_iter
+        else:
+            current_step = None  # Indica all'embedder di usare 100% dei livelli (Inferenza/Eval)
 
-        rays_and_viewdirs = torch.cat([samples, viewdirs, app_emb], dim=-1)
-        rays_and_viewdirs = rays_and_viewdirs.reshape(-1, 6 + app_emb.shape[-1])
+        # Codifica spaziale dei punti
+        enc_points, keep_mask = self.embedder(coords=flat_points,
+                                              current_step=current_step,
+                                              max_steps=max_steps)
 
-        # Hash-encode the samples coordinates and SH-encode the view directions
-        enc_points, keep_mask = self.embedder(rays_and_viewdirs[..., :3])
-        enc_dirs = self.sh_encoder(rays_and_viewdirs[..., 3:6])
-        enc_app = rays_and_viewdirs[..., 6:]
+        # Codifica direzionale (SH): la calcoliamo una volta per raggio e poi la espandiamo
+        # Invece di fare l'expand su 6+dim prima del forward, lo facciamo in modo efficiente qui
+        viewdirs = rays[..., 3:6] # Shape: [B, 3]
+        enc_dirs_per_ray = self.sh_encoder(viewdirs) # Shape: [B, SH_dim]
+        
+        # Espansione dei vettori condizionali alla cardinalità dei campioni (n_samples)
+        enc_dirs = enc_dirs_per_ray.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, enc_dirs_per_ray.shape[-1])
+        
+        # Uniformiamo la dimensionalità di app_emb se non ha la dimensione del batch corretta
+        if app_emb.dim() == 3: 
+            app_emb = app_emb.squeeze(1) # Rende la forma [B, emb_dim]
+        enc_app = app_emb.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, app_emb.shape[-1])
 
-        # Concatenate as a whole input vector and compute a forward pass with SmallNeRF
-        input_vector = torch.cat([enc_points, enc_dirs, enc_app], dim=-1).to(self.device)
+        # Concatenazione finale ottimizzata direttamente nello spazio latente codificato
+        input_vector = torch.cat([enc_points, enc_dirs, enc_app], dim=-1)
         output = self.nerf(input_vector)
 
-        # Clean (i.e. set sigma to 0) output estimates out of bbox boundaries
-        # and reshape as [points, samples, channels]
-        output = output.to(self.device)
-        output[~keep_mask, -1] = 0
-        output = output.reshape(rays.shape[0], self.sampler.n_samples, -1)
+        # Applicazione della maschera della scatola limite (Bounding Box Keep Mask)
+        output[~keep_mask, -1] = 0.0
         
-        # Integrate densities and channels values estimate along each ray
-        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6], near, far)
+        # Riordiniamo il tensore nella griglia [Raggi, Campioni, Canali_Uscita]
+        output = output.reshape(n_rays, n_samples, -1)
+        
+        # Integrazione volumetrica finale per generare i pixel dell'immagine
+        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6])
         
         return chs_map, depth_map, sparsity_loss, mask

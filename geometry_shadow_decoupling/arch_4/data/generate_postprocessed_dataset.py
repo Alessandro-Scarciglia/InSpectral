@@ -19,22 +19,13 @@ Guidelines for naming the postprocessed dataset:
 [name_of_original_dataset]_[degree_resolution].npy
 e.g. "colour_256_XY_12_1d5_training_3.npy" means that the dataset is sampled one frame each 3 degrees, i.e. 360/3=120 frames.
 """
-SRC_DATASET = "colour_512_radialboost_m30_training"
+SRC_DATASET = "colour_512_XY_12_0d0_training"
 ARCH = "arch_4"
-DEG_RES = 4
+DEG_RES = 1
 MASKED = "masked"
-
-# Noise powers
-STD_WN_POS = 0#1e-1
-STD_DRIFT_POS = 1e-3
-STD_WN_ATT = 0#1e-5
-STD_DRIFT_ATT = 1e-6
-DELTA_T = 0.25
-N_NAV_UPDATES = int(((90*60)/(360/DEG_RES)) / DELTA_T)
-
-DATA_PATH = f"/home/vision/Desktop/Datasets/Landsat8/{SRC_DATASET}"
+DATA_PATH = f"/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/{SRC_DATASET}"
 DATA_DST = f"/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/{ARCH}/data/postprocessed_dataset/" + \
-    f"{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}_noise_baseline.npy"
+    f"{SRC_DATASET}_{DEG_RES}_{MASKED}_{ARCH}.npy"
 
 def calculate_intrinsic_matrix(
         fov: float,
@@ -102,7 +93,7 @@ def main():
     """
     
     # Load data
-    with open(DATA_PATH + "/transforms.json", "r") as fopen:
+    with open(DATA_PATH + "/vggt_transforms.json", "r") as fopen:
         df = json.load(fopen)
         fov = df["camera_angle_x"]
         resolution = int(df["resolution"])
@@ -116,9 +107,6 @@ def main():
     # Dataset object
     dataset = list()
     cnt = 0
-
-    # Initialize time-correlated noise
-    bp, br = 0., 0.
 
     # Store pixels from each training image
     print("Generating Training Dataset...")
@@ -145,40 +133,6 @@ def main():
 
         # Load camera-2-world matrix
         c2w = torch.tensor(sample["transform_matrix"])
-
-        # Compute time-correlated noise for position
-        for _ in range(N_NAV_UPDATES):
-            wp = np.random.normal(0, STD_DRIFT_POS, 3)
-            bp = bp + wp
-
-        
-        # Compute white noise for position
-        epsp = np.random.normal(0, STD_WN_POS, 3)
-
-        # Sum to original position
-        c2w[:3, 3] += (bp + epsp)
-        print(f"Err Pos: {np.linalg.norm(bp+epsp)}")
-
-        # Compute time-correlated noise for rotation
-        for _ in range(N_NAV_UPDATES):
-            wr = np.random.normal(0, STD_DRIFT_ATT, 3)
-            br = br + wr
-
-        # Compute white noise for rotation
-        epsr = np.random.normal(0, STD_WN_ATT, 3)
-
-        # Compute the delta theta perturbation 
-        delta_theta = br + epsr
-        print(f"Err Att: {np.linalg.norm(br+epsr)*180/np.pi}")
-
-        # Compute relative rotation
-        rotm_noise = rodrigues(delta_theta)
-
-        # Apply to rotation
-        c2w[:3, :3] = c2w[:3, :3] @ rotm_noise
-        
-        # Scale down distance of the scene
-        c2w[:3, 3] /= 7
 
         # Generate rays
         rays = raygen(c2w)

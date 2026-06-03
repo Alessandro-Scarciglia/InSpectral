@@ -23,7 +23,8 @@ class Sampler(nn.Module):
     def __init__(
             self,
             n_samples: int,
-            radius: float,
+            near: float,
+            far: float,
             device: str = 'cpu'
     ):
         super(Sampler, self).__init__()
@@ -31,7 +32,8 @@ class Sampler(nn.Module):
         # Attributes
         self.n_samples = n_samples
         self.device = torch.device(device)
-        self.radius = torch.tensor(radius, device=device)
+        self.near = torch.tensor(near, device=device)
+        self.far = torch.tensor(far, device=device)
 
     #@timing_decorator
     def forward(self,
@@ -56,19 +58,13 @@ class Sampler(nn.Module):
             it is a tensor containing the depth of each point in the scene from the camera point of view.
         '''
 
-        # Compute distances of rays origin
-        dist = torch.linalg.norm(rays_o, axis=-1)
-
-        # Define near and far
-        near = (dist - self.radius).reshape(-1, 1)
-        far = (dist + self.radius).reshape(-1, 1)
-
         # Bring rays to target device
         rays_o = rays_o.to(self.device)
         rays_d = rays_d.to(self.device)
 
-        # Useful variables
-        n_rays = rays_o.shape[0]
+        # Bring near/far in array shape
+        near = self.near * torch.ones(len(rays_o)).reshape(-1, 1).to(self.device)
+        far = self.far * torch.ones(len(rays_o)).reshape(-1, 1).to(self.device)
 
         # Generate equally spaced n_samples
         tvals = torch.linspace(0., 1., steps=self.n_samples, device=self.device).reshape(1, -1)
@@ -85,4 +81,4 @@ class Sampler(nn.Module):
         # Define 3D points along each ray
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
-        return pts, zvals, near, far
+        return pts, zvals

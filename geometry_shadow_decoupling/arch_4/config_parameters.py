@@ -4,8 +4,8 @@ import torch
 
 # Dataset parameters
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_512_radialboost_m30_training_4_masked_arch_4_noise_baseline.npy",
-    "test_path": "/home/vision/Desktop/Datasets/Landsat8/colour_512_radialboost_m30_training"
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_512_XY_12_0d0_training_1_masked_arch_4.npy",
+    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_512_XY_12_0d0_training/"
 }
 
 
@@ -26,11 +26,12 @@ rays_parameters = {
 
 
 # Parameter dictionary for sampler
-SCALE = 7.0
-SCENE = 7.0 / SCALE
+SCALE = 1.0
+SCENE = 0.25 / SCALE
 sampler_parameters = {
     "n_ray_samples": 64,
-    "radius": SCENE * 1.73,
+    "near": 0.01,
+    "far": 2,
 }
 
 
@@ -54,7 +55,7 @@ sh_parameters = {
 
 # Parameters for appearance embedder
 app_parameters = {
-    "embeddings_num": 90,
+    "embeddings_num": 120,
     "embeddings_dim": 4
 }
 
@@ -71,14 +72,12 @@ nerf_parameters = {
     "out_ch": cfg_parameters["channels"],
 }
 
-# Residual MLP parameters
+# Residual parameters
 res_model_parameters = {
-    "n_layers": 2,
-    "hidden_dim": 128,
-    "input_ch": 6,
-    "output_ch": 6,
-    "lin_range": 0.5 / SCALE,
-    "ang_range": 0.03 * (torch.pi/180)
+    "embeddings_num": 120,
+    "embeddings_dim": 6,
+    "lin_range": 0.2 / SCALE,
+    "ang_range": 5 * (torch.pi/180)
 }
 
 
@@ -87,10 +86,10 @@ training_parameters = {
     "training_batch": 32*32*8,
     "epochs": 10,
     "lr": 1e-3,
-    "res_lr": 1e-2,
+    "res_lr": 1e-3,
     "app_lr": 1e-4,
     "emb_lr": 1e-2,
-    "start_cam_opt": 3,
+    "start_cam_opt": 0,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     "tv_loss_weight": 1e-8,
@@ -107,5 +106,5 @@ training_parameters = {
     "verbose": True,
     "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt_nerf.pt",
-    "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt_res.pt"
+    "checkpoint_res": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt_res.pt"
 }

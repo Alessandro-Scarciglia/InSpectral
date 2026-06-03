@@ -11,34 +11,6 @@ from config_parameters import *
 
 
 class Trainer:
-    """
-    This class implements a trainer agent. It performs the training and the validation of a single iteration (batch).
-    Its methods are called several times during the training and modify inplace the learning parameters.
-
-    Attributes:
-    ----------
-    model: every PyTorch-supported model format
-        it is the model to be optimized.
-    lr: float
-        the learning rate of the optimization.
-    betas: tuple[float, float]
-        beta1 and beta2, usually (0.9, 0.99) are parameters which regulate the mean gradient and the root mean square
-        of gradients (i.e. the regulate first and second moments of the gradient). Beta1 takes into account the old gradients,
-        whereas beta2 stabilizes the scale of the gradient.
-        All in all, both beta1 and beta2 manage the memory of the previous gradients: the former for the mean, the latter for
-        the variance. The number of steps are 1/(1-beta).
-    eps: float
-        it is a numerical trick to improve numerical stability when normalizing the gradients. Typical value is 1e-8.
-    tv_loss_weight: float
-        the weight of the total variation loss in the optimization.
-    sparsity_loss_weight: float
-        the weight of the sparsity loss in the optimization.
-    decay_rate: float
-        the rate of decay of the leraning rate, in a manner like: lr * (decay_rate)^n where n is the 
-        number of of the current epoch.
-    decay_steps: int
-        it is the number of epoch when the decay shall start, thus: lr * (decay_rate)^(n-decay_steps) when n-decay_steps >= 0. 
-    """
     def __init__(
             self,
             model,
@@ -76,8 +48,7 @@ class Trainer:
             beta=beta
         )
 
-        # Instantiate the optimizer
-        # TODO: Investigate on the use of single vs. multiple groups.
+        # Instantiate the optimizer with grouped parameters
         self.optimizer = torch.optim.AdamW(
             [
                 {'params': self.model.nerf.parameters(), 'lr': self.lr},
@@ -101,42 +72,29 @@ class Trainer:
             rays: torch.Tensor,
             labels: torch.Tensor,
             app_idx: torch.Tensor,
-            epoch: int
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        This function implements the training step of a single batch.
-
-        Parameters:
-        ----------
-        rays: torch.Tensor[float]
-            a tensor containing input rays origins and directions.
-        sundir: torch.Tensor[float]
-            a tensor containing the direction of the light source.
-        labels: torch.Tensor[float]
-            a tensor  containing the truth for output channels of pixels.
-        epoch: int
-            current epoch of optimization.
-
-        Returns:
-        -------
-        loss: torch.Tensor[float]
-            it is the cumulative loss, sum of photometric loss, sparsity loss, BCEDice and TVL.
-        loss_photom: torch.Tensor[float]
-            it is the photometric loss (MSE).
-        loss_tv: torch.Tensor[float]
-            it is the Total Variation Loss on the embeddings.
-        loss_sparsity: torch.Tensor[float]
-            it is the sparsity loss on the object 3D geometry.
-        loss_bcedice: torch.Tensor[float]
-            it is the BCEDice loss on the object segmentation mask estimate. 
-        """
+            epoch: int,
+            n_iter: int,
+            max_steps: int,
+            dl_len: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         
-        # Move labels and sundir to device
+        # Move labels to device
         labels_rgb = labels[:, :3].to(self.model.device)
         labels_mask = labels[:, -1].unsqueeze(-1).to(self.model.device)
 
-        # Forward pass
-        chs_map, _, loss_sparsity, mask = self.model(rays, app_idx)
+        # --- 1. CALCOLO STEP GLOBALE LINEARE ---
+        current_step = (epoch * dl_len) + n_iter
+
+        # --- 2. DINAMICA DEL PESO DELLA SPARSITY LOSS (WARM-UP) ---
+        sparsity_warmup_end = max_steps * 0.15  # Il warm-up dura per il primo 15% del training
+        if current_step < sparsity_warmup_end:
+            sparsity_factor = current_step / sparsity_warmup_end
+        else:
+            sparsity_factor = 1.0
+        current_sparsity_weight = training_parameters["sparsity_loss_weight"] * sparsity_factor
+
+        # Forward pass (Passiamo i parametri temporali corretti per il Coarse-to-Fine dell'hash)
+        chs_map, _, loss_sparsity, mask = self.model(rays, app_idx, epoch, n_iter, max_steps, dl_len)
 
         # Zeroing the gradient
         self.optimizer.zero_grad()
@@ -151,35 +109,23 @@ class Trainer:
                 hash_parameters["low_res"],
                 hash_parameters["high_res"],
                 i, hash_parameters["log2_hashmap_size"],
-                hash_parameters["n_levels"]) for i in range(hash_parameters["n_levels"]
-            )
+                hash_parameters["n_levels"]) for i in range(hash_parameters["n_levels"])
         )
 
-        # Compute the sum of cosine similarities in adiacent embeddings
-        # loss_app_sim = torch.mean(
-        #     (self.model.app_embedder.embeddings.weight[1:] - \
-        #     self.model.app_embedder.embeddings.weight[:-1]) ** 2
-        # )
+        # Compute the sum of cosine similarities in adjacent embeddings
         loss_app_sim = torch.mean(
             (self.model.app_embedder.embeddings.weight[2:] + \
             - 2 * self.model.app_embedder.embeddings.weight[1:-1] + \
             self.model.app_embedder.embeddings.weight[:-2]) ** 2
         )
 
-        # Apply a soft loss to embeddings norm
-        loss_app_norm = torch.mean(
-            (torch.linalg.norm(self.model.app_embedder.embeddings.weight, dim=-1) - 1.)**2
-        )
-
         # Compute BCEDice loss on segmentation masks
         loss_bce_dice = self.bcedice(mask, labels_mask)
 
-        # Combine the computed losses. A basic loss function is given by the weighted sum of the 
-        # photometric loss with the sparsity loss. Optionally, other losses can be added
+        # Combine the computed losses using the dynamic weight scaled by the warm-up
         loss = loss_photom + \
-            training_parameters["sparsity_loss_weight"] * loss_sparsity + \
+            current_sparsity_weight * loss_sparsity + \
             training_parameters["similarity_loss_weight"] * loss_app_sim
-            #training_parameters["emb_norm_loss_weight"] * loss_app_norm
         
         # For some epochs, add the total variation loss
         if epoch <= training_parameters["stop_tv_epoch"]:
@@ -193,52 +139,32 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim #+ loss_app_norm
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim
 
     def valid_one_batch(
             self,
             rays: torch.Tensor,
             labels: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        This function implements the validation phase on a single batch of the Validation Set.
-
-        Parameters:
-        ----------
-        rays: torch.Tensor[float]
-            a tensor containing input rays origins and directions.
-        labels: torch.Tensor[float]
-            a tensor  containing the truth for output channels of pixels.
-
-        Returns:
-        -------
-        loss: torch.Tensor[float]
-            it is the cumulative loss, sum of photometric loss, sparsity loss, BCEDice and TVL.
-        loss_photom: torch.Tensor[float]
-            it is the photometric loss (MSE).
-        loss_sparsity: torch.Tensor[float]
-            it is the sparsity loss on the object 3D geometry.
-        psnr: torch.Tensor[float]
-            the Power Signal-to-Noise Ratio between the rendered frame and the captured one.
-        """
+        
         # Move labels to device
-        labels = labels.to(self.model.device)
+        labels_rgb = labels[:, :3].to(self.model.device)
 
-        # Forward pass
-        chs_map, _, loss_sparsity, _ = self.model(rays)
+        # --- CORREZIONE VALIDAZIONE ---
+        # Forniamo argomenti di fallback per i vincoli temporali (None indica all'embedder di usare 100% dei livelli)
+        # Passiamo 0 come appearance index di default o una media se previsto dal modello
+        chs_map, _, loss_sparsity, _ = self.model(rays, torch.tensor([0], device=self.model.device), None, None, None, None)
 
         # Compute photometric loss on pixel estimate
-        loss_photom = compute_mse(chs_map, labels)
+        loss_photom = compute_mse(chs_map, labels_rgb)
         
-        # Combinate losses
-        # TODO: Why here the loss does not include TVL and BCEDice?
-        loss = loss_photom + \
-            training_parameters["sparsity_loss_weight"] * loss_sparsity
+        # Combine losses
+        loss = loss_photom + training_parameters["sparsity_loss_weight"] * loss_sparsity
         
         # Compute PSNR
         psnr = compute_psnr(
             img1=chs_map,
-            img2=labels
+            img2=labels_rgb
         )
         
         return loss, loss_photom, loss_sparsity, psnr
