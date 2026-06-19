@@ -1,41 +1,51 @@
-# Import modules
+"""
+Global hyperparameter configuration file for joint NeRF and Pose Optimization.
+Updated to dynamically match the unit-box centered dataset normalization properties.
+"""
+
 import torch
 
-
-# Dataset parameters
+# =======================================================================================
+# DATASET PARAMETERS
+# =======================================================================================
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_512_XY_12_0d0_training_1_masked_arch_4.npy",
-    "test_path": "/home/vision/Desktop/Datasets/CloudSat_NeRF_Datasets/colour_512_XY_12_0d0_training/"
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat_4_nominal_masked_arch_4_res512_min23.43_max40.00.npy",
+    "test_path": "/home/vision/Desktop/Datasets/Landsat"
 }
 
-
-# General setup
+# =======================================================================================
+# GENERAL SETUP
+# =======================================================================================
 cfg_parameters = {
     "resolution": 512,
     "channels": 3,
     "device": "cuda:0"
 }
 
-
-# Parameter dictionary for rays generation
+# =======================================================================================
+# RAYS GENERATION CONFIGURATION
+# =======================================================================================
 rays_parameters = {
     "height": cfg_parameters["resolution"],
     "width": cfg_parameters["resolution"],
     "num_ch": cfg_parameters["channels"],
 }
 
-
-# Parameter dictionary for sampler
+# =======================================================================================
+# SAMPLING & GEOMETRIC BOUNDS (UNIT BOX CONSTRAINED)
+# =======================================================================================
 SCALE = 1.0
-SCENE = 0.25 / SCALE
+SCENE = 0.25
+
 sampler_parameters = {
     "n_ray_samples": 64,
-    "near": 0.01,
-    "far": 2,
+    "near": 0.4,
+    "far": 1.6,
 }
 
-
-# Parameter dictionary for hash embedder
+# =======================================================================================
+# HASH EMBEDDER PARAMETERS
+# =======================================================================================
 hash_parameters = {
     "bbox": (torch.tensor([-SCENE, -SCENE, -SCENE]),
              torch.tensor([SCENE, SCENE, SCENE])),
@@ -44,23 +54,28 @@ hash_parameters = {
     "log2_hashmap_size": 19,
     "low_res": 16,
     "high_res": 512,
+    "min_visible_levels": 8,  # Active levels at epoch 0
 } 
 
-
-# Parameter dictionary for sh embedder
+# =======================================================================================
+# SPHERICAL HARMONICS EMBEDDER PARAMETERS
+# =======================================================================================
 sh_parameters = {
     "input_dim": 3,
     "degree": 4
 }
 
-# Parameters for appearance embedder
+# =======================================================================================
+# APPEARANCE EMBEDDER PARAMETERS
+# =======================================================================================
 app_parameters = {
-    "embeddings_num": 120,
+    "embeddings_num": 90,
     "embeddings_dim": 4
 }
 
-
-# Parameter dictionary for SmallNeRF 
+# =======================================================================================
+# CORE BACKBONE (SMALLNERF) ARCHITECTURE
+# =======================================================================================
 nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 128,
@@ -72,37 +87,41 @@ nerf_parameters = {
     "out_ch": cfg_parameters["channels"],
 }
 
-# Residual parameters
+# =======================================================================================
+# LEARNABLE CAMERA POSE RESIDUALS CONFIGURATION
+# =======================================================================================
 res_model_parameters = {
-    "embeddings_num": 120,
+    "embeddings_num": 90,
     "embeddings_dim": 6,
-    "lin_range": 0.2 / SCALE,
-    "ang_range": 5 * (torch.pi/180)
+    "lin_range": 0.25 / SCALE,            
+    "ang_range": 10 * (torch.pi / 180)    
 }
 
-
-# Parameter dictionary for training 
+# =======================================================================================
+# MULTI-TASK TRAINING HYPERPARAMETERS
+# =======================================================================================
 training_parameters = {
     "training_batch": 32*32*8,
     "epochs": 10,
-    "lr": 1e-3,
-    "res_lr": 1e-3,
+    "lr": 1e-4,
+    "res_lr": 1e-2,
     "app_lr": 1e-4,
-    "emb_lr": 1e-2,
-    "start_cam_opt": 0,
+    "emb_lr": 1e-3,
+    "start_cam_opt": 40,     
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-8,
-    "stop_tv_epoch": 20,
+    "photometric_loss_weight": 1e-2,
+    "tv_loss_weight": 1e-5,
+    "stop_tv_epoch": 30,
     "start_seg_epoch": 0,
-    "sparsity_loss_weight": 1e-7,
-    "bce_dice_loss_weight": 5e-1,
+    "sparsity_loss_weight": 1e-4,
+    "bce_dice_loss_weight": 1e-1,
     "bce_loss_weight": 0.5,
     "dice_loss_weight": 0.5,
     "similarity_loss_weight": 1e-2,
     "emb_norm_loss_weight": 1e-1,
     "decay_rate": 0.99,
-    "decay_steps": 3,
+    "decay_steps": 2,
     "verbose": True,
     "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt_nerf.pt",

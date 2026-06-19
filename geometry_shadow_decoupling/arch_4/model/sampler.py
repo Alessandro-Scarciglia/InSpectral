@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from model.profiler import timing_decorator
 
 
 class Sampler(nn.Module):

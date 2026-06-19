@@ -25,7 +25,7 @@ class NeuralRenderer(nn.Module):
                  embeddings_num: int, embeddings_dim: int, n_layers: int,
                  hidden_dim: int, geo_feat_dim: int, n_layers_color: int,
                  hidden_dim_color: int, input_ch: int, input_ch_views: int,
-                 out_ch: int, device: str = 'cpu'):
+                 out_ch: int, min_visible_levels: int, device: str = 'cpu'):
         
         super(NeuralRenderer, self).__init__()
 
@@ -36,7 +36,7 @@ class NeuralRenderer(nn.Module):
         
         self.embedder = HashEmbedder(bbox=bbox, n_levels=n_levels, n_features_per_level=n_features_per_level,
                                      log2_hashmap_size=log2_hashmap_size, low_resolution=low_res,
-                                     high_resolution=high_res, device=device)
+                                     high_resolution=high_res, device=device, min_visible_levels=min_visible_levels)
         
         self.sh_encoder = SHEncoder(input_dim=input_dim, degree=degree, device=device)
         

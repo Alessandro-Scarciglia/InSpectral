@@ -6,8 +6,8 @@ import numpy as np
 
 class RaysGeneratorSynth(nn.Module):
     """
-    This class implements the methods for rays generation starting from a camera-to-world
-    transformation and employing information regarding the camera.
+    Implements optimized camera ray generation matching standard NeRF / OpenCV 
+    conventions, starting from a camera-to-world (c2w) transformation matrix.
     """
     def __init__(
             self,
@@ -23,25 +23,28 @@ class RaysGeneratorSynth(nn.Module):
         self.width = width
         self.ch = num_ch
         
-        # Convertiamo subito la matrice intrinseca in tensore
+        # Convert intrinsic matrix to tensor and register as buffer for device management
         intrinsic_tensor = torch.from_numpy(intrinsic_matrix).float()
+        self.register_buffer("intrinsic_matrix", intrinsic_tensor)
 
-        # Massima ottimizzazione: generiamo la griglia di pixel statica
+        # Generate a static pixel grid 
         i_span = torch.linspace(0, self.width - 1, self.width)
         j_span = torch.linspace(0, self.height - 1, self.height)
         it, jt = torch.meshgrid(i_span, j_span, indexing='ij')
         i, j = it.t(), jt.t()
         
-        # Calcoliamo le direzioni (dirs) della camera una volta sola qui nell'__init__
-        # Questo elimina qualsiasi interazione con variabili CPU a runtime
+        # FIXED: Corrected reference frame signs to standard NeRF convention 
+        # (X right, Y down/inverted, Z pointing backwards)
         dirs_static = torch.stack([
             (i - intrinsic_tensor[0, 2]) / intrinsic_tensor[0, 0],
-            (j - intrinsic_tensor[1, 2]) / intrinsic_tensor[1, 1],
-            torch.ones_like(i)
+            -(j - intrinsic_tensor[1, 2]) / intrinsic_tensor[1, 1],
+            -torch.ones_like(i)
         ], dim=-1)
         
-        # Registriamo SOLO le direzioni statiche come unico buffer ufficiale.
-        # Spostando questo modulo sul device, 'dirs' si sposterà istantaneamente su GPU.
+        # FIXED: Normalize directions to create unit vectors for precise volumetric sampling bounds
+        dirs_static = dirs_static / torch.norm(dirs_static, dim=-1, keepdim=True)
+        
+        # Register static directions as buffer to automatically handle runtime device casting
         self.register_buffer("dirs", dirs_static)
 
     def get_rays(
@@ -49,23 +52,21 @@ class RaysGeneratorSynth(nn.Module):
             c2w: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Generates HxW rays starting from camera origin towards the scene.
+        Generates an [H, W, 3] grid of ray origins and rotated unit directions.
         """
-        # Forza c2w sul tipo float32 corretto
+        # Force correct float32 precision
         c2w = c2w.float()
 
-        # Estraiamo la matrice di rotazione 3x3
+        # Extract the 3x3 rotation matrix
         rotation = c2w[:3, :3]  # Shape: [3, 3]
         
-        # Ruota le direzioni usando la rotazione della camera.
-        # Usiamo torch.matmul o einsum che sono nativi e garantiscono l'allineamento dei device su CUDA.
-        # self.dirs ha shape [H, W, 3], vogliamo moltiplicarlo per rotation [3, 3] -> esito [H, W, 3]
+        # Rotate static unit directions using the camera extrinsics rotation tensor
         rays_d = torch.einsum('hwj,ij->hwi', self.dirs, rotation)
         
-        # Estraiamo la traslazione (origine della camera) -> Shape: [3]
+        # Extract the translation vector (camera center origin) -> Shape: [3]
         camera_origin = c2w[:3, -1]
         
-        # Espandiamo l'origine per coprire l'intera griglia dei raggi [H, W, 3]
+        # Broadcast camera origin across the entire ray grid topology -> Shape: [H, W, 3]
         rays_o = camera_origin.expand(rays_d.shape)
 
         return rays_o, rays_d
@@ -75,12 +76,12 @@ class RaysGeneratorSynth(nn.Module):
             c2w: torch.Tensor
     ) -> torch.Tensor:
         """
-        The forward function returns rays when in inference-only mode.
+        Forward pass execution returning combined ray configurations during inference.
         """
-        # Compute rays 
+        # Compute ray origins and directions
         rays_o, rays_d = self.get_rays(c2w)
         
-        # Concatena Origini e Direzioni lungo l'ultimo canale -> Risultato: [H, W, 6]
+        # Concatenate origins and directions along the last feature dimension -> Shape: [H, W, 6]
         out = torch.cat([rays_o, rays_d], dim=-1)
     
         return out

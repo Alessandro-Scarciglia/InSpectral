@@ -1,31 +1,37 @@
+"""
+This module implements a Multiresolution Spatial Hash Grid Embedder.
+It transforms raw continuous Cartesian coordinates (x, y, z) into interpolated, 
+learnable high-dimensional feature representations with support for temporal coarse-to-fine annealing.
+"""
+
 import torch
 import torch.nn as nn
+
 torch.manual_seed(1234)
+
 
 class HashEmbedder(nn.Module):
     """
-    This class implements the functionalities of the Hash Embedding preprocessing. It takes in input the 
-    cartesian coordinates of the rendering volume and build a mapping from (x, y, z) to learnable features
-    in a multiresolution fashion.
-
+    Multiresolution spatial hashing preprocessing layer.
+    
     Attributes:
     ----------
-    bbox: tuple[torch.Tensor[float, float, float], torch.Tensor[float, float, float]]
-        it defines the 3D bounding box which defines the rendering volume.
+    bbox: tuple[torch.Tensor, torch.Tensor]
+        Defines the 3D spatial boundaries of the target reconstruction volume.
     n_levels: int
-        it defines the number of intermediate levels between low and high resolution (included).
-        The bigger n_levels, the greater the number of features resolutions taken into account.
+        Number of multiresolution spatial embedding grids.
     n_features_per_level: int
-        it defines the length of a feature vector per each 'voxel'.
+        Dimensional length of the embedding feature vector per voxel vertex.
     log2_hashmap_size: int
-        it is the exponent which defines the size of the vocabulary, i.e. 2**log2_hashmap_size is
-        the number of reference points to be referred to in the rendering volume.
+        Exponent sizing the vocabulary hash dictionary (2**log2_hashmap_size slots).
     low_resolution: int
-        it is the number of division of the rendering volume side in the lowest resolution.
+        Voxel cell side division frequency at the coarsest grid level.
     high_resolution: int
-        it is the number of division of the rendering volume side in the greatest resolution.
+        Voxel cell side division frequency at the finest grid level.
+    min_visible_levels: int
+        Number of active baseline low-resolution levels present at epoch 0.
     device: str
-        it is a string to target the hardware where to store tensors ("cpu", generic "cuda", or specific "cuda:x").
+        Target hardware acceleration device context ('cpu', 'cuda').
     """
     def __init__(
             self,
@@ -35,37 +41,47 @@ class HashEmbedder(nn.Module):
             log2_hashmap_size: int = 19,
             low_resolution: int = 16,
             high_resolution: int = 512,
+            min_visible_levels: int = 4,  
             device: str = 'cpu'
     ):
         super(HashEmbedder, self).__init__()
 
-        # Attributes
+        # Attributes assignment
         self.device = torch.device(device)
         self.bbox = bbox
         self.n_levels = n_levels
         self.n_feature_per_level = n_features_per_level
         self.log2_hashmap_size = log2_hashmap_size
-        self.low_res = torch.tensor(low_resolution, device=device)
-        self.high_res = torch.tensor(high_resolution, device=device)
+        self.min_visible_levels = min_visible_levels  
+        
+        self.low_res = torch.tensor(low_resolution, device=self.device)
+        self.high_res = torch.tensor(high_resolution, device=self.device)
+        
+        # Spatial neighbor look-up voxel offsets
         self.box_offset = torch.tensor([[[i, j, k] for i in [0, 1]
                                          for j in [0, 1]
-                                         for k in [0, 1]]], device=device)
+                                         for k in [0, 1]]], device=self.device)
         
+        # Prime multipliers for spatial index scrambling
         self.primes = torch.tensor([1, 2654435761, 805459861,
-                                    3674653429, 2097192037, 1434869437, 2165219737], device=device)
+                                    3674653429, 2097192037, 1434869437, 2165219737], device=self.device)
 
-        # Compute output dimension
+        # Compute combined output spatial dimensionality
         self.out_dim = n_levels * n_features_per_level
 
-        # Compute exponential base for resolution upsampling
+        # Calculate scale upsampling ratio base constant
         self.b = torch.exp(
             torch.log(self.high_res / self.low_res) / (n_levels - 1)
-        ).to(device)
+        ).to(self.device)
 
-        # Initialize embeddings. An embedding per level is created. 
+        # Pre-allocate separate parameter look-up tables per level
         self.embeddings = nn.ModuleList(
-            [nn.Embedding(2 ** log2_hashmap_size, n_features_per_level).to(device) for _ in range(n_levels)]
+            [nn.Embedding(2 ** log2_hashmap_size, n_features_per_level).to(self.device) for _ in range(n_levels)]
         )
+        
+        # Initialize hash grid parameters with a very narrow uniform distribution to stabilize training bounds
+        for embedding_layer in self.embeddings:
+            nn.init.uniform_(embedding_layer.weight, a=-1e-4, b=1e-4)
         
     def trilinear_interpolation(
             self,
@@ -75,23 +91,23 @@ class HashEmbedder(nn.Module):
             voxel_emb: torch.Tensor
     ) -> torch.Tensor:
         """
-        Trilinear interpolation extension. 
-        Follows: https://en.wikipedia.org/wiki/Trilinear_interpolation
+        Calculates localized trilinear weights over 8 localized grid parameters.
+        Follows standard coordinate interpolation: https://en.wikipedia.org/wiki/Trilinear_interpolation
         """
-        # Weights definition
+        # Linear tracking weights across dimensions
         weights = (coords - voxel_min) / (voxel_max - voxel_min)
 
-        # First step: from 8 points to 4 points
+        # First stage: Reductions from 8 structural vertices to 4 planar nodes
         c00 = voxel_emb[:, 0] * (1 - weights[:, 0][:, None]) + voxel_emb[:, 4] * weights[:, 0][:, None]
         c01 = voxel_emb[:, 1] * (1 - weights[:, 0][:, None]) + voxel_emb[:, 5] * weights[:, 0][:, None]
         c10 = voxel_emb[:, 2] * (1 - weights[:, 0][:, None]) + voxel_emb[:, 6] * weights[:, 0][:, None]
         c11 = voxel_emb[:, 3] * (1 - weights[:, 0][:, None]) + voxel_emb[:, 7] * weights[:, 0][:, None]
 
-        # Second step: from 4 points to 2 points
+        # Second stage: Reductions from 4 planar nodes to 2 axial points
         c0 = c00 * (1 - weights[:, 1][:, None]) + c10 * weights[:, 1][:, None]
         c1 = c01 * (1 - weights[:, 1][:, None]) + c11 * weights[:, 1][:, None]
 
-        # Third step: from 2 points to 1 point
+        # Third stage: Reductions from 2 axial points to a single aggregated feature vector
         c = c0 * (1 - weights[:, 2][:, None]) + c1 * weights[:, 2][:, None]
 
         return c
@@ -102,19 +118,16 @@ class HashEmbedder(nn.Module):
             log2_hashmap_size: int
     ) -> torch.Tensor:
         """
-        Spatial coordinates hashing using prime numbers multiplication and XOR.
+        Transforms 3D discrete spatial voxel locations into wrapped table indices.
+        Uses prime factor multiplication followed by a bitwise bitmask wrap.
         """
-        # Initialize xor results
         xor_result = torch.zeros_like(coords)[..., 0]
 
-        # Compute hashing for each coordinate dimension
         for i in range(coords.shape[-1]):
             xor_result ^= coords[..., i] * self.primes[i]
 
-        hashing = torch.tensor((1 << log2_hashmap_size) - 1, device=self.device)
-        hashing = hashing & xor_result
-
-        return hashing 
+        hashing_mask = torch.tensor((1 << log2_hashmap_size) - 1, device=self.device)
+        return hashing_mask & xor_result
 
     def get_voxel_vertices(
             self,
@@ -124,22 +137,19 @@ class HashEmbedder(nn.Module):
             log2_hashmap_size: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Computes reference voxel extrema, hashed indices, and valid rendering region mask.
+        Computes discrete local voxel bounds and wraps indices into look-up addresses.
         """
-        # Unpack the bbox extrema
         bbox_min, bbox_max = bbox
         bbox_min, bbox_max = bbox_min.to(self.device), bbox_max.to(self.device)
 
-        # Build a binary mask to sign those coordinates out of the bbox.
+        # Check for out-of-bounds ray intersections via boundary masks
         keep_mask = coords == torch.max(torch.min(coords, bbox_max), bbox_min)
         coords = torch.clamp(coords, min=bbox_min, max=bbox_max)
 
-        # Compute for each coordinate the reference voxel extrema
         grid_size = (bbox_max - bbox_min) / resolution
         bottom_left_idx = torch.floor((coords - bbox_min) / grid_size).int()
         
-        # CORREZIONE BUG FLOAT ALTE RISOLUZIONI:
-        # Calcoliamo i vertici basandoci rigorosamente sugli indici discreti per evitare disallineamenti di floating-point
+        # Calculate localized vertices from discrete index anchors to circumvent float drift
         voxel_min_vertex = bottom_left_idx * grid_size + bbox_min
         voxel_max_vertex = (bottom_left_idx + 1) * grid_size + bbox_min
 
@@ -155,60 +165,56 @@ class HashEmbedder(nn.Module):
             max_steps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Forward pass with support for Progressive Coarse-to-Fine Soft-Masking.
-        
-        Parameters:
-        ----------
-        coords: torch.Tensor
-            3D input spatial coordinates.
-        current_step: int (optional)
-            The current training iteration step.
-        max_steps: int (optional)
-            The total number of training iterations scheduled.
+        Maps raw coordinates onto multi-scale grids with soft coarse-to-fine linear masking.
         """
-        # Bring coordinates to target hardware
         coords = coords.to(self.device)
         coords_embedded_all = list()
 
-        # --- GESTIONE DEI PESI COARSE-TO-FINE ---
-        # Di default tutti i livelli sono attivi (peso = 1.0)
+        # -------------------------------------------------------------------------------
+        # COARSE-TO-FINE COEFFICIENT CALCULATION
+        # -------------------------------------------------------------------------------
         weights = [1.0] * self.n_levels
         
         if current_step is not None and max_steps is not None:
-            # Definiamo che la transizione si completa al 50% del training totale
+            # Complete the training structure expansion phase at exactly 50% training steps
             anneal_end_step = max_steps * 0.5
-            # Determina quanti livelli "sbloccare" proporzionalmente al progresso
-            progress = (current_step / anneal_end_step) * self.n_levels
+            
+            # Identify the remaining resolution tiers to dynamically unlock
+            remaining_levels = self.n_levels - self.min_visible_levels
+            
+            alpha = min(1.0, current_step / anneal_end_step)
+            progress = self.min_visible_levels + (alpha * remaining_levels)
             
             for i in range(self.n_levels):
-                # Il peso sfuma dolcemente tra 0.0 e 1.0 per il livello i-esimo
-                weights[i] = max(0.0, min(1.0, progress - i))
+                if i < self.min_visible_levels:
+                    weights[i] = 1.0  
+                else:
+                    # Ramps fine features smoothly between 0.0 and 1.0
+                    weights[i] = max(0.0, min(1.0, progress - i))
 
-        # Iterate the forwarding for each resolution
+        # -------------------------------------------------------------------------------
+        # INDEPENDENT GRID SCALE INTERPOLATION
+        # -------------------------------------------------------------------------------
         for i in range(self.n_levels):
             resolution = torch.floor(self.low_res * (self.b ** i))
             
-            # Get voxels from coordinates
-            voxel_min, voxel_max, hashed_idx, keep_mask = self.get_voxel_vertices(coords,
-                                                                                  self.bbox,
-                                                                                  resolution,
-                                                                                  self.log2_hashmap_size)
+            voxel_min, voxel_max, hashed_idx, keep_mask = self.get_voxel_vertices(
+                coords, self.bbox, resolution, self.log2_hashmap_size
+            )
             
-            # Assign hashing to embeddings
             voxel_embedds = self.embeddings[i](hashed_idx)
 
-            # Apply trilinear interpolation
-            coords_embedded = self.trilinear_interpolation(coords,
-                                                           voxel_min,
-                                                           voxel_max,
-                                                           voxel_embedds)
+            coords_embedded = self.trilinear_interpolation(
+                coords, voxel_min, voxel_max, voxel_embedds
+            )
             
-            # --- APPLICAZIONE DEL SOFT-MASKING ---
-            coords_embedded = coords_embedded * weights[i]
+            # Apply calculated structural fading windows
+            if weights[i] < 1.0:
+                coords_embedded = coords_embedded * weights[i]
             
             coords_embedded_all.append(coords_embedded)
 
-        # OTTIMIZZAZIONE PERFORMANCE: Estratti fuori dal loop for
+        # Aggregate spatial channel sequences
         keep_mask = keep_mask.sum(dim=-1) == keep_mask.shape[-1]
         new_coords = torch.cat(coords_embedded_all, dim=-1)
 
