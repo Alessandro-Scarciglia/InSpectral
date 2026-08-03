@@ -7,19 +7,18 @@ import torch
 class NeRFData(Dataset):
     """
     Dataset class is meant to provide a torch dataset. This dataset comes from preprocessed data, thus samples are
-    not images but single pixels described by rays origin, direction, channels ground truth, light direction. This class
-    reads the output of the script 'generate_nerf_dataset.py'.
+    not images but single pixels described by rays origin, direction, channels ground truth (RGBA), driving mask, and image index. 
+    This class reads the output of the script 'generate_postprocessed_dataset.py'.
 
     Attributes:
     ----------
     data_path: str
-        the full path to the folder where metadata are stored in 'transforms.json' file
+        the full path to the .npy file containing the postprocessed pixel-ray dataset.
     """
     def __init__(
             self,
             data_path: str
     ):
-
         # Read the data folder
         self.df = np.load(data_path)
 
@@ -32,6 +31,6 @@ class NeRFData(Dataset):
             self,
             index: int
     ) -> torch.Tensor:
-        sample = self.df[index]
+        # Estrae la riga intera (ora composta da 12 elementi: 6 raggi, 3 RGB, 1 maschera, 1 indice)
+        sample = self.df[index, :11]
         return torch.tensor(sample, dtype=torch.float32)
-

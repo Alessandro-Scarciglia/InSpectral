@@ -91,7 +91,7 @@ class NeRFSmall(nn.Module):
             else:
                 color = torch.sigmoid(color)
             
-        # Pack everything together: [Color (RGB), Raw_Sigma (1)]
+        # Pack everything together: [Color (RGB), Raw_Sigma (1)] -> Totale: 4 canali finali
         outputs = torch.cat([color, raw_sigma.unsqueeze(-1)], dim=-1)
         
         return outputs

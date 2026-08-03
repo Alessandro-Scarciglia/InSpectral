@@ -10,21 +10,26 @@ import numpy as np
 import torch
 from tqdm import tqdm
 import cv2
-import matplotlib.pyplot as plt  # Added for plotting
+import matplotlib.pyplot as plt  
 
 # =======================================================================================
 # GLOBAL CONFIGURATION PARAMETERS
 # =======================================================================================
 CONFIG = {
     "target_resolution": 512,
-    "src_dataset": "Landsat",
+    "src_dataset": "Landsat8_v3",
     "arch": "arch_4",
     "deg_res": 4,
-    "masked": "masked",
-    "trajectory_type": "nominal",  # Options: "estimated" or "nominal"
+    
+    # NUOVO PARAMETRO: Scegli 'rgb' (carica file_path, 3 canali) oppure 'ir' (carica ir_path, 1 canale)
+    "image_type": "rgb", 
+    
+    # AGGIORNATO: Specifica il percorso relativo interno alla cartella del dataset
+    "masked": "images/mask",  
+    "trajectory_type": "nominal",
     
     # Input path setup
-    "data_path": "/home/vision/Desktop/Datasets/Landsat/",
+    "data_path": "/home/vision/Desktop/Datasets/Landsat8_v3/",
     
     # Output path setup
     "data_dst_dir": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/"
@@ -142,21 +147,34 @@ def main():
     # -----------------------------------------------------------------------------------
     # PURE LINEAR SCALING CALCULATION (NO OFFSET)
     # -----------------------------------------------------------------------------------
-    # Extract all camera centers to compute scaling bounds directly from the original origin
     c2w_matrices = np.array([sample["transform_matrix"] for sample in samples])
     original_centers = c2w_matrices[:, :3, 3].copy()  
     
-    # Calculate distances directly from the original coordinate origin (0, 0, 0)
     distances = np.linalg.norm(original_centers, axis=1)
     min_dist = float(distances.min())
     max_dist = float(distances.max())
     
-    # Isotropic scale factor based on maximum absolute distance from the absolute origin
     scale_factor = 1.0 / (max_dist + 1e-10)
     print(f"[INFO] Trajectory Bounds from Origin - Min Dist: {min_dist:.4f}, Max Dist: {max_dist:.4f}")
 
-    # Scale original centers directly without centering offsets
     normalized_centers = original_centers * scale_factor
+
+    # -----------------------------------------------------------------------------------
+    # PARAMETRIC CONFIGURATION (RGB vs IR) BASED ON USER CONFIG
+    # -----------------------------------------------------------------------------------
+    image_mode = CONFIG["image_type"].lower()
+    if image_mode == "rgb":
+        path_key = "file_path"
+        img_channels = 3
+        read_flag = cv2.IMREAD_COLOR
+        print("[INFO] Configured mode: RGB (3 channels, using 'file_path')")
+    elif image_mode == "ir":
+        path_key = "ir_path"
+        img_channels = 1
+        read_flag = cv2.IMREAD_GRAYSCALE
+        print("[INFO] Configured mode: IR / Grayscale (1 channel, using 'ir_path')")
+    else:
+        raise ValueError(f"Unknown image_type: '{CONFIG['image_type']}'. Choose 'rgb' or 'ir'.")
 
     # -----------------------------------------------------------------------------------
     # MODEL & FILENAME SETUP
@@ -164,8 +182,11 @@ def main():
     intrinsic_matrix = calculate_intrinsic_matrix(fov=fov, resolution=(resolution, resolution))
     raygen = RaysGeneratorSynth(height=resolution, width=resolution, num_ch=num_ch, intrinsic_matrix=intrinsic_matrix)
 
+    # FIX: Sostituiamo gli slash con underscore per non creare percorsi fittizi nel file name
+    safe_masked_name = CONFIG['masked'].replace("/", "_")
+
     # Dynamic filename containing trajectory type info, min and max distance details from CONFIG
-    base_name = f"{CONFIG['src_dataset']}_{CONFIG['deg_res']}_{CONFIG['trajectory_type']}_{CONFIG['masked']}_{CONFIG['arch']}_res{resolution}_min{min_dist:.2f}_max{max_dist:.2f}"
+    base_name = f"{CONFIG['src_dataset']}_{CONFIG['deg_res']}_{CONFIG['trajectory_type']}_{safe_masked_name}_{CONFIG['arch']}_res{resolution}_min{min_dist:.2f}_max{max_dist:.2f}_{image_mode}"
     filename = f"{base_name}.npy"
     plot_filename = f"{base_name}_trajectory.png"
     
@@ -173,8 +194,9 @@ def main():
     data_dst = os.path.join(CONFIG["data_dst_dir"], filename)
     plot_dst = os.path.join(CONFIG["data_dst_dir"], plot_filename)
 
-    # Pre-allocate large NumPy array for structural efficiency (11 features per pixel)
-    dataset = np.zeros((total_pixels, 11), dtype=np.float32)
+    # Allocazione dinamica delle colonne: 6 (rays) + n_canali (1 o 3) + 1 (Mask) + 1 (Image Index)
+    total_features = 6 + img_channels + 1 + 1
+    dataset = np.zeros((total_pixels, total_features), dtype=np.float32)
 
     # -----------------------------------------------------------------------------------
     # VECTORIZED DATASET GENERATION
@@ -182,17 +204,41 @@ def main():
     print("Generating Training Dataset...")
     for idx, sample in enumerate(tqdm(samples)):
 
-        # Load and resize image & mask using configured data path and the custom resolution
-        img_path = os.path.join(CONFIG["data_path"], sample["file_path"])
-        img = cv2.imread(img_path)
+        # Caricamento guidato dal parametro configurato
+        if path_key not in sample:
+            raise KeyError(f"[ERROR] Chiave '{path_key}' non trovata nel file JSON per il frame {idx}. Verifica i dati o la CONFIG.")
+            
+        img_path = os.path.join(CONFIG["data_path"], sample[path_key])
+        img = cv2.imread(img_path, read_flag)
+        
+        if img is None:
+            raise FileNotFoundError(f"[ERROR] Non è stato possibile caricare l'immagine al percorso: {img_path}")
+            
         img = cv2.resize(img, (resolution, resolution))
         
-        mask_path = os.path.join(CONFIG["data_path"], sample["mask_path"])
-        mask = cv2.imread(mask_path, 0)
+        # Ripristina la dimensione del canale se OpenCV la rimuove per la scala di grigi (1 canale)
+        if img_channels == 1:
+            img = img[:, :, np.newaxis]
+        
+        # FIX: Isola il nome del file della maschera per evitare percorsi duplicati (es. mask/mask/000.png)
+        mask_filename = os.path.basename(sample["mask_path"])
+        dynamic_mask_path = os.path.join(CONFIG["masked"], mask_filename)
+            
+        mask_path = os.path.join(CONFIG["data_path"], dynamic_mask_path)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        
+        # Controllo di sicurezza preventivo se il file non viene trovato
+        if mask is None:
+            raise FileNotFoundError(f"[ERROR] Non è stato possibile caricare la maschera al percorso: {mask_path}")
+            
         mask = cv2.resize(mask, (resolution, resolution))
 
-        if CONFIG["masked"] == 'masked':
-            img = cv2.bitwise_and(img, img, mask=mask)
+        # Forza a nero i pixel dello sfondo esterno alla maschera
+        img = cv2.bitwise_and(img, img, mask=mask)
+        
+        # Di sicurezza dopo l'operazione bitwise su immagini a singolo canale
+        if img_channels == 1 and len(img.shape) == 2:
+            img = img[:, :, np.newaxis]
 
         # Normalize components to [0, 1] range
         img_norm = img.astype(np.float32) / 255.0
@@ -208,9 +254,9 @@ def main():
         # Create the index tracking grid
         image_index = np.full((resolution, resolution, 1), idx, dtype=np.float32)
 
-        # Linearly combine all grids per pixel
+        # Concatenazione dinamica in base alle colonne configurate
         frame_data = np.concatenate([rays, img_norm, mask_norm, image_index], axis=-1)
-        frame_data = frame_data.reshape(-1, 11)
+        frame_data = frame_data.reshape(-1, total_features)
 
         # Store directly inside the pre-allocated slice
         start_idx = idx * pixels_per_frame
@@ -228,7 +274,7 @@ def main():
     print(f"Shuffling and saving {num_frames} processed frames...")
     np.random.shuffle(dataset)
     np.save(data_dst, dataset)
-    print(f"Dataset successfully saved to: {data_dst}")
+    print(f"Dataset successfully saved to: {data_dst} | Final Shape: {dataset.shape}")
 
 
 if __name__ == "__main__":

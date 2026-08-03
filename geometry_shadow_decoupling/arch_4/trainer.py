@@ -1,7 +1,7 @@
 """
 This module handles the training and validation loops for a joint NeRF and Pose Optimization model.
-It implements grouped parameter optimization, dynamic sparsity loss warm-up schedules, 
-and temporal-constrained multi-task training (Photometric, Total Variation, BCE-Dice, and Appearance Similarity).
+It implements grouped parameter optimization, a constant sparsity loss setup, 
+and temporal-constrained multi-task training (Photometric, Total Variation, Tunable Driving, and Appearance Similarity).
 """
 
 # Import standard modules
@@ -9,11 +9,8 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 
 # Import custom modules
-from model.losses import total_variation_loss, BCEDiceLoss
+from model.losses import total_variation_loss, TunableBimodalDrivingLoss, BCEDiceLoss
 from model.metrics import *
-
-# Parameters
-from config_parameters import *
 
 
 class Trainer:
@@ -27,12 +24,17 @@ class Trainer:
             lr_app: float,
             betas: tuple,
             eps: float,
+            photo_loss_weight: float,
             tv_loss_weight: float,
             sparsity_loss_weight: float,
+            similarity_loss_weight: float,
             decay_rate: float,
             decay_steps: int,
-            alpha: float,
-            beta: float
+            stop_tv_epoch: int,         
+            start_seg_epoch: int,        
+            driving_loss_weight: float,  
+            softness: float = 0.25,  
+            gamma: float = 1.2
     ):
         """
         Initializes the optimization agent, groups architectural parameters, 
@@ -47,22 +49,47 @@ class Trainer:
         self.app_lr = lr_app
         self.betas = betas
         self.eps = eps
+        
+        # Register loss weights and temporal thresholds as instance attributes
+        self.photo_loss_weight = photo_loss_weight
         self.tot_var_w = tv_loss_weight
         self.sparsity_loss_w = sparsity_loss_weight
+        self.similarity_loss_w = similarity_loss_weight
+        self.driving_loss_w = driving_loss_weight
+        self.stop_tv_epoch = stop_tv_epoch
+        self.start_seg_epoch = start_seg_epoch
+        
         self.decay_rate = decay_rate
         self.decay_steps = decay_steps
-        self.params = hash_parameters
         
-        # Binary Cross Entropy + Dice loss helper for semantic masking
-        self.bcedice = BCEDiceLoss(alpha=alpha, beta=beta)
+        # Extract properties directly from the embedder object to eliminate external config dependencies
+        self.hash_params = {
+            "low_res": getattr(model.embedder, "low_resolution", getattr(model.embedder, "low_res", 16)),
+            "high_res": getattr(model.embedder, "high_resolution", getattr(model.embedder, "high_res", 512)),
+            "log2_hashmap_size": getattr(model.embedder, "log2_hashmap_size", 19),
+            "n_levels": getattr(model.embedder, "n_levels", 16)
+        }
+        
+        # New Tunable driving loss replacing the strict BCE+Dice setup
+        # self.driving_loss = TunableBimodalDrivingLoss(
+        #     softness=softness, 
+        #     gamma=gamma,
+        #     w_bg=4.0, 
+        #     w_fg=1.0
+        # )
 
-        # Instantiate the per-group learning rate learning optimizer
+        self.driving_loss = BCEDiceLoss(
+            alpha=0.5,
+            beta=0.5
+        )
+
+        # Setup optimizer grouping
         self.optimizer = torch.optim.AdamW(
             [
-                {'params': self.model.nerf.parameters(), 'lr': self.lr},
-                {'params': self.model.embedder.parameters(), 'lr': self.emb_lr},
-                {'params': self.model.app_embedder.parameters(), 'lr': self.app_lr},
-                {'params': self.res_model.parameters(), 'lr': self.res_lr}
+                {'params': filter(lambda p: p.requires_grad, self.model.nerf.parameters()), 'lr': self.lr},
+                {'params': filter(lambda p: p.requires_grad, self.model.embedder.parameters()), 'lr': self.emb_lr},
+                {'params': filter(lambda p: p.requires_grad, self.model.app_embedder.parameters()), 'lr': self.app_lr},
+                {'params': filter(lambda p: p.requires_grad, self.res_model.parameters()), 'lr': self.res_lr}
             ],
             betas=self.betas,
             eps=self.eps
@@ -79,6 +106,7 @@ class Trainer:
             self,
             rays: torch.Tensor,
             labels: torch.Tensor,
+            driving_mask: torch.Tensor,  
             app_idx: torch.Tensor,
             epoch: int,
             n_iter: int,
@@ -88,106 +116,64 @@ class Trainer:
         """
         Executes a single optimization iteration over a pixel/ray training batch.
         """
-        # Move target supervision batches onto the correct device
-        labels_rgb = labels[:, :3].to(self.model.device)
-        labels_mask = labels[:, -1].unsqueeze(-1).to(self.model.device)
+        # labels contiene esattamente 3 canali (RGB) passati dallo script principale
+        labels_rgb = labels[:, :3].to(self.model.device)   
+        labels_mask = driving_mask.to(self.model.device)
 
-        # -------------------------------------------------------------------------------
-        # 1. GLOBAL LINEAR STEP COMPUTATION
-        # -------------------------------------------------------------------------------
-        current_step = (epoch * dl_len) + n_iter
-
-        # -------------------------------------------------------------------------------
-        # 2. SPARSITY LOSS WEIGHT WARM-UP DYNAMICS
-        # -------------------------------------------------------------------------------
-        # Linearly ramp up sparsity weight during the first 15% of training steps
-        sparsity_warmup_end = max_steps * 0.15  
-        if current_step < sparsity_warmup_end:
-            sparsity_factor = current_step / sparsity_warmup_end
-        else:
-            sparsity_factor = 1.0
-        current_sparsity_weight = training_parameters["sparsity_loss_weight"] * sparsity_factor
-
-        # -------------------------------------------------------------------------------
-        # 3. FORWARD INFRASTRUCTURE PASS
-        # -------------------------------------------------------------------------------
-        # Feed-forward passing structural anchors for grid level progressive training
+        # Forward pass integrated with the volumetric renderer
         chs_map, _, loss_sparsity, mask = self.model(rays, app_idx, epoch, n_iter, max_steps, dl_len)
 
-        # Clear active gradients before backward calculations
         self.optimizer.zero_grad()
 
-        # Compute standard Mean Squared Error (MSE) Photometric loss
+        # Core components that are always active in the computational graph
         loss_photom = compute_mse(chs_map, labels_rgb)
 
-        # Compute multi-level Total Variation Loss (TVL) over grid features
-        loss_tv = sum(
-            total_variation_loss(
-                self.model.embedder.embeddings[i],
-                hash_parameters["low_res"],
-                hash_parameters["high_res"],
-                i, hash_parameters["log2_hashmap_size"],
-                hash_parameters["n_levels"]) for i in range(hash_parameters["n_levels"])
-        )
-
-        # Evaluate smoothness constraints by penalizing local appearance changes (second derivative)
         loss_app_sim = torch.mean(
             (self.model.app_embedder.embeddings.weight[2:] + \
             - 2 * self.model.app_embedder.embeddings.weight[1:-1] + \
             self.model.app_embedder.embeddings.weight[:-2]) ** 2
         )
 
-        # Evaluate structural cross-entropy on object borders
-        loss_bce_dice = self.bcedice(mask, labels_mask)
-
-        # -------------------------------------------------------------------------------
-        # 4. CONDITIONAL MULTI-TASK LOSS AGGREGATION
-        # -------------------------------------------------------------------------------
-        # Assemble standard core objectives
-        loss = loss_photom + \
-            current_sparsity_weight * loss_sparsity + \
-            training_parameters["similarity_loss_weight"] * loss_app_sim
+        # Initialize the total loss with fixed active components (Sparsity used directly without scaling)
+        loss = (self.photo_loss_weight * loss_photom) + (self.sparsity_loss_w * loss_sparsity) + (self.similarity_loss_w * loss_app_sim)
         
-        # Apply Total Variation (TV) localization up to the threshold epoch limit
-        if epoch <= training_parameters["stop_tv_epoch"]:
-            loss += training_parameters["tv_loss_weight"] * loss_tv
+        # --- TOTAL VARIATION LOSS (HYBRID / SHADOW METRIC) ---
+        if epoch <= self.stop_tv_epoch:
+            # Active computation inside the gradient graph
+            loss_tv = sum(
+                total_variation_loss(
+                    self.model.embedder.embeddings[i],
+                    self.hash_params["low_res"], 
+                    self.hash_params["high_res"],
+                    i, self.hash_params["log2_hashmap_size"],
+                    self.hash_params["n_levels"]
+                ) for i in range(self.hash_params["n_levels"])
+            )
+            loss = loss + (self.tot_var_w * loss_tv)
+        else:
+            # Calculated without gradient after stop_tv_epoch to maintain tracking on Tensorboard
+            with torch.no_grad():
+                loss_tv = sum(
+                    total_variation_loss(
+                        self.model.embedder.embeddings[i],
+                        self.hash_params["low_res"], 
+                        self.hash_params["high_res"],
+                        i, self.hash_params["log2_hashmap_size"],
+                        self.hash_params["n_levels"]
+                    ) for i in range(self.hash_params["n_levels"])
+                )
 
-        # Inject semantic mask segmentation objectives in the final training phase
-        if epoch >= training_parameters["start_seg_epoch"]:
-            loss += training_parameters["bce_dice_loss_weight"] * loss_bce_dice
+        # --- DRIVING LOSS (HYBRID / SHADOW METRIC) ---
+        if epoch >= self.start_seg_epoch:
+            # Active computation inside the gradient graph
+            loss_driving = self.driving_loss(mask, labels_mask)
+            loss = loss + (self.driving_loss_w * loss_driving)
+        else:
+            # Calculated without gradient before start_seg_epoch for diagnostic purposes
+            with torch.no_grad():
+                loss_driving = self.driving_loss(mask, labels_mask)
 
-        # -------------------------------------------------------------------------------
-        # 5. BACKWARD MINIMIZATION STEP
-        # -------------------------------------------------------------------------------
         loss.backward()
         self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_bce_dice, loss_app_sim
-
-    def valid_one_batch(
-            self,
-            rays: torch.Tensor,
-            labels: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Executes an isolated evaluation pass without modifying structural weight gradients.
-        """
-        # Move target arrays to device
-        labels_rgb = labels[:, :3].to(self.model.device)
-
-        # -------------------------------------------------------------------------------
-        # VALIDATION BOUNDARY FALLBACK
-        # -------------------------------------------------------------------------------
-        # Passing None to time variables ensures that all features levels are fully active 
-        # during inference. Fallback to index 0 for the appearance embedding.
-        fallback_idx = torch.tensor([0], device=self.model.device)
-        chs_map, _, loss_sparsity, _ = self.model(rays, fallback_idx, None, None, None, None)
-
-        # Compute metrics on pixel estimations
-        loss_photom = compute_mse(chs_map, labels_rgb)
-        loss = training_parameters["photometric_loss_weight"] * loss_photom + training_parameters["sparsity_loss_weight"] * loss_sparsity
-        
-        # Calculate Peak Signal-to-Noise Ratio (PSNR)
-        psnr = compute_psnr(img1=chs_map, img2=labels_rgb)
-        
-        return loss, loss_photom, loss_sparsity, psnr
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app_sim

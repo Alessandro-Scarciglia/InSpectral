@@ -12,15 +12,15 @@ class Integrator(nn.Module):
     """
     def __init__(
             self,
-            near: float,
-            far: float,
+            near_depth: float = 0.00,
+            far_depth: float = 1.125,
             device: str = 'cpu'
     ):
         super(Integrator, self).__init__()
 
         # Attributes
-        self.near = near
-        self.far = far
+        self.near_depth = near_depth
+        self.far_depth = far_depth
         self.device = torch.device(device)
 
     def forward(
@@ -30,47 +30,63 @@ class Integrator(nn.Module):
             rays_d: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Computes the accumulated transmittance along each ray.
+        Computes the accumulated transmittance along each ray to output integrated 
+        channels (e.g. RGB), depth maps, a structural sparsity loss, and a 
+        mathematically valid 0-1 segmentation opacity mask.
         """
-        # Bring inputs to target device immediately
+        # Step 1: Cast all volumetric tracking inputs safely onto the active execution device
         raw = raw.to(self.device)
         zvals = zvals.to(self.device)
         rays_d = rays_d.to(self.device)
 
-        # Lambda function to compute alphas from raw densities (applies ReLU here!)
+        # Step 2: Define vectorized alpha calculation via local continuous density activation
         raw2alpha = lambda raw_val, distance_val: 1. - torch.exp(-F.relu(raw_val) * distance_val)
 
-        # Compute distances between samples along the rays
+        # Step 3: Compute localized coordinate spatial intervals (delta steps) along the rays
         dists = zvals[..., 1:] - zvals[..., :-1]
         dists = torch.cat([dists, torch.full(dists[..., :1].shape, 1e10, device=self.device)], dim=-1)
         dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
-        # Extract predicted color channels
-        chs = raw[..., :cfg_parameters["channels"]]
+        # Step 4: Structurally decouple the raw feature grid into separate color and density tensors
+        num_color_channels = cfg_parameters["channels"]
+        chs = raw[..., :num_color_channels]
+        density = raw[..., num_color_channels]
 
-        # Compute alphas and transmittance cumulative product
-        alpha = raw2alpha(raw[..., -1], dists)
+        # Step 5: Compute continuous opacity bounds and aggregate cumulative transmittance vectors
+        alpha = raw2alpha(density, dists)
         tmp = torch.cat([torch.ones((alpha.shape[0], 1), device=self.device), 1. - alpha + 1e-10], dim=-1)
         cumprod = torch.cumprod(tmp, dim=-1)[:, :-1]
 
-        # Compute ray integration weights
+        # Step 6: Extract matching sampling integration weights across the ray vectors
         weights = alpha * cumprod
         
-        # Build the segmentation mask from accumulated weights
-        mask = torch.clamp(torch.sum(weights, dim=-1), min=0.0, max=1.1).unsqueeze(-1)
+        # Step 7: Mathematically accumulate structural weights to extract the core segmentation mask
+        accumulated_opacity = torch.sum(weights, dim=-1)
+        mask = torch.clamp(accumulated_opacity, min=0.0, max=1.0).unsqueeze(-1)
         
-        # Compute final RGB pixel color map
+        # Step 8: Linearly blend isolated color vectors into localized pixel color maps
         chs_map = torch.sum(weights[..., None] * chs, dim=-2)
-        chs_map = torch.clamp(chs_map, 0.0, 1.0)
+        chs_map = torch.clamp(input=chs_map, min=0.0, max=1.0)
 
-        # Compute depth map integrated along the ray
-        zvals_norm = (self.far - zvals) / (self.far - self.near)
-        depth_map = torch.sum(weights * zvals_norm, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
+        # Step 9: Reconstruct normalized geometric distance depth fields using accumulated opacity
+        # Compute volumetric depth (no artificial normalization)
+        depth_map = torch.sum(weights * zvals, dim=-1)
+
+        # Normalize to [0,1] range based on near/far bounds
+        depth_map = (depth_map - self.near_depth) / (self.far_depth - self.near_depth)
+
+        # Invert mapping: near -> white (1), far -> black (0)
+        depth_map = 1.0 - depth_map
+
+        # Suppress background using accumulated opacity (prevents white background artifacts)
+        depth_map = depth_map * accumulated_opacity
+
+        # Final clamp for image encoding
         depth_map = torch.clamp(depth_map, 0.0, 1.0)
 
-        # --- SPARSITY LOSS L1 ---
-        # Spinge i pesi di campionamento a zero lungo le zone vuote del raggio,
-        # impedendo la formazione di nebbia senza mandare in crash l'ottimizzazione iniziale.
-        sparsity_loss = torch.mean(torch.abs(weights))
+        # Step 10: Enforce true Shannon Entropy Sparsity over ray distribution profiles
+        # This penalizes multi-peak or hazy weight assignments, clearing out foggy artifacts.
+        entropy = -1.0 * weights * torch.log(weights + 1e-10)
+        sparsity_loss = torch.mean(torch.sum(entropy, dim=-1))
 
         return chs_map, depth_map, sparsity_loss, mask

@@ -1,8 +1,12 @@
-# Import modules
+# =======================================================================================
+# IMPORT MODULES
+# =======================================================================================
 import torch
 import torch.nn as nn
 
-# Import custom modules
+# =======================================================================================
+# IMPORT CUSTOM MODULES
+# =======================================================================================
 from model.sampler import Sampler
 from model.hash_embedder import HashEmbedder
 from model.sh_encoder import SHEncoder
@@ -10,7 +14,9 @@ from model.appearance_embedder import AppearanceEmbedder
 from model.small_nerf import NeRFSmall
 from model.integrator import Integrator
 
-# Parameters
+# =======================================================================================
+# IMPORT GLOBAL HYPERPARAMETERS
+# =======================================================================================
 from config_parameters import *
 
 
@@ -25,13 +31,17 @@ class NeuralRenderer(nn.Module):
                  embeddings_num: int, embeddings_dim: int, n_layers: int,
                  hidden_dim: int, geo_feat_dim: int, n_layers_color: int,
                  hidden_dim_color: int, input_ch: int, input_ch_views: int,
-                 out_ch: int, min_visible_levels: int, device: str = 'cpu'):
+                 out_ch: int, min_visible_levels: int, 
+                 grid_resolution: int = 128, device: str = 'cpu',
+                 **kwargs):
         
         super(NeuralRenderer, self).__init__()
 
-        # Attributes
+        # Model hyperparameters and structural attributes
         self.device = torch.device(device)
+        self.out_ch = out_ch  # Represents target image channels (e.g., 1 for IR, 3 for RGB)
         
+        # Initialize rendering and sampling sub-components
         self.sampler = Sampler(n_samples=n_ray_samples, near=near, far=far, device=device)
         
         self.embedder = HashEmbedder(bbox=bbox, n_levels=n_levels, n_features_per_level=n_features_per_level,
@@ -39,15 +49,15 @@ class NeuralRenderer(nn.Module):
                                      high_resolution=high_res, device=device, min_visible_levels=min_visible_levels)
         
         self.sh_encoder = SHEncoder(input_dim=input_dim, degree=degree, device=device)
-        
         self.app_embedder = AppearanceEmbedder(embeddings_num=embeddings_num, embeddings_dim=embeddings_dim, device=device)
 
+        # Instantiate NeRF network mapping coordinates and view vectors to radiance fields
         self.nerf = NeRFSmall(n_layers=n_layers, hidden_dim=hidden_dim, geo_feat_dim=geo_feat_dim,
                               n_layers_color=n_layers_color, embeddings_dim=embeddings_dim,
                               hidden_dim_color=hidden_dim_color, input_ch=input_ch,
                               input_ch_views=input_ch_views, out_ch=out_ch, device=device).to(device)
         
-        self.integrator = Integrator(near=near, far=far, device=device)
+        self.integrator = Integrator(device=device)
 
     def forward(
             self,
@@ -62,57 +72,48 @@ class NeuralRenderer(nn.Module):
         Sequence of functions turning input rays into a rendered pixel map, depth map, 
         sparsity loss, and segmentation mask.
         """
-        # Bring basic inputs to target device immediately
         rays = rays.to(self.device)
         app_idx = app_idx.to(torch.int32).to(self.device)
-        
-        # Extract appearance embedding
-        app_emb = self.app_embedder(app_idx)  # Shape: [B, 1, emb_dim] o [B, emb_dim]
+        app_emb = self.app_embedder(app_idx).squeeze(1) if self.app_embedder(app_idx).dim() == 3 else self.app_embedder(app_idx)
 
         # Produce 3D point samples along each camera ray
         samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
-        
         n_rays, n_samples, _ = samples.shape
 
-        # --- EFFICIENZA: EVITIAMO IL MEGA-RESHAPE PREMATURO ---
-        # Estraiamo le coordinate dei punti pronte per l'Hash Embedder
-        flat_points = samples.reshape(-1, 3)
+        # Dynamic channel setup: target image channels + 1 volume density (sigma) channel
+        total_network_out_ch = self.out_ch + 1
 
-        # Gestione flessibile e robusta dello step temporale per il Coarse-to-Fine
-        if epoch is not None and n_iter is not None and len_dl is not None:
-            current_step = (epoch * len_dl) + n_iter
-        else:
-            current_step = None  # Indica all'embedder di usare 100% dei livelli (Inferenza/Eval)
+        # -------------------------------------------------------------------------------
+        # 1. EMBEDDING ON ALL SAMPLING POINTS
+        # -------------------------------------------------------------------------------
+        current_step = (epoch * len_dl) + n_iter if all(v is not None for v in [epoch, n_iter, len_dl]) else None
 
-        # Codifica spaziale dei punti
-        enc_points, keep_mask = self.embedder(coords=flat_points,
-                                              current_step=current_step,
-                                              max_steps=max_steps)
+        # Flatten points array to interface smoothly with the spatial hash embedder
+        flat_samples = samples.reshape(-1, 3)
+        enc_points, keep_mask = self.embedder(coords=flat_samples, current_step=current_step, max_steps=max_steps)
+        enc_points = enc_points * keep_mask.unsqueeze(-1).float()
 
-        # Codifica direzionale (SH): la calcoliamo una volta per raggio e poi la espandiamo
-        # Invece di fare l'expand su 6+dim prima del forward, lo facciamo in modo efficiente qui
-        viewdirs = rays[..., 3:6] # Shape: [B, 3]
-        enc_dirs_per_ray = self.sh_encoder(viewdirs) # Shape: [B, SH_dim]
+        # -------------------------------------------------------------------------------
+        # 2. ENCODE DIRECTIONS & APPEARANCE FOR ALL SAMPLES
+        # -------------------------------------------------------------------------------
+        enc_dirs = self.sh_encoder(rays[..., 3:6])  # Shape: [n_rays, dir_dim]
         
-        # Espansione dei vettori condizionali alla cardinalità dei campioni (n_samples)
-        enc_dirs = enc_dirs_per_ray.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, enc_dirs_per_ray.shape[-1])
-        
-        # Uniformiamo la dimensionalità di app_emb se non ha la dimensione del batch corretta
-        if app_emb.dim() == 3: 
-            app_emb = app_emb.squeeze(1) # Rende la forma [B, emb_dim]
-        enc_app = app_emb.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, app_emb.shape[-1])
+        # Stretch and repeat ray directions and latent codes for all sampling spaces along the ray
+        enc_dirs_stretched = enc_dirs.unsqueeze(1).repeat(1, n_samples, 1).reshape(-1, enc_dirs.shape[-1])
+        app_emb_stretched = app_emb.unsqueeze(1).repeat(1, n_samples, 1).reshape(-1, app_emb.shape[-1])
 
-        # Concatenazione finale ottimizzata direttamente nello spazio latente codificato
-        input_vector = torch.cat([enc_points, enc_dirs, enc_app], dim=-1)
-        output = self.nerf(input_vector)
+        # -------------------------------------------------------------------------------
+        # 3. NETWORK FORWARDPASS
+        # -------------------------------------------------------------------------------
+        nerf_input = torch.cat([enc_points, enc_dirs_stretched, app_emb_stretched], dim=-1)
+        output_flat = self.nerf(nerf_input)
 
-        # Applicazione della maschera della scatola limite (Bounding Box Keep Mask)
-        output[~keep_mask, -1] = 0.0
-        
-        # Riordiniamo il tensore nella griglia [Raggi, Campioni, Canali_Uscita]
-        output = output.reshape(n_rays, n_samples, -1)
-        
-        # Integrazione volumetrica finale per generare i pixel dell'immagine
-        chs_map, depth_map, sparsity_loss, mask = self.integrator(output, zvals, rays[..., 3:6])
+        # Unflatten network outputs using the dynamic channel count
+        nerf_output = output_flat.reshape(n_rays, n_samples, total_network_out_ch)
+
+        # -------------------------------------------------------------------------------
+        # 4. VOLUMETRIC INTEGRATION
+        # -------------------------------------------------------------------------------
+        chs_map, depth_map, sparsity_loss, mask = self.integrator(nerf_output, zvals, rays[..., 3:6])
         
         return chs_map, depth_map, sparsity_loss, mask

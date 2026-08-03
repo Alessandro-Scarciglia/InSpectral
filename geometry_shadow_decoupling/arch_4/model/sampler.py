@@ -24,6 +24,7 @@ class Sampler(nn.Module):
             n_samples: int,
             near: float,
             far: float,
+            centered: bool = True,
             device: str = 'cpu'
     ):
         super(Sampler, self).__init__()
@@ -33,6 +34,7 @@ class Sampler(nn.Module):
         self.device = torch.device(device)
         self.near = torch.tensor(near, device=device)
         self.far = torch.tensor(far, device=device)
+        self.centered = centered
 
     #@timing_decorator
     def forward(self,
@@ -64,9 +66,13 @@ class Sampler(nn.Module):
         # Bring near/far in array shape
         near = self.near * torch.ones(len(rays_o)).reshape(-1, 1).to(self.device)
         far = self.far * torch.ones(len(rays_o)).reshape(-1, 1).to(self.device)
-
-        # Generate equally spaced n_samples
         tvals = torch.linspace(0., 1., steps=self.n_samples, device=self.device).reshape(1, -1)
+        
+        # If the sampling is world-centric
+        if self.centered:
+            near = torch.linalg.norm(rays_o, dim=-1).reshape(-1, 1) - near
+            far = torch.linalg.norm(rays_o, dim=-1).reshape(-1, 1) + far
+        
         zvals = near * (1 - tvals) + far * tvals
 
         # Add a perturbation to the uniformly spaced samples
@@ -74,7 +80,6 @@ class Sampler(nn.Module):
         upper = torch.cat([mids, zvals[..., -1:]], dim=-1)
         lower = torch.cat([zvals[..., :1], mids], dim=-1)
         randvals = torch.rand(zvals.shape, device=self.device)
-
         zvals = lower + (upper - lower) * randvals
         
         # Define 3D points along each ray

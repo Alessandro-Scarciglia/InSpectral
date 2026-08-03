@@ -173,24 +173,24 @@ class HashEmbedder(nn.Module):
         # -------------------------------------------------------------------------------
         # COARSE-TO-FINE COEFFICIENT CALCULATION
         # -------------------------------------------------------------------------------
-        weights = [1.0] * self.n_levels
+        # weights = [1.0] * self.n_levels
         
-        if current_step is not None and max_steps is not None:
-            # Complete the training structure expansion phase at exactly 50% training steps
-            anneal_end_step = max_steps * 0.5
+        # if current_step is not None and max_steps is not None:
+        #     # Complete the training structure expansion phase at exactly 50% training steps
+        #     anneal_end_step = max_steps * 0.5
             
-            # Identify the remaining resolution tiers to dynamically unlock
-            remaining_levels = self.n_levels - self.min_visible_levels
+        #     # Identify the remaining resolution tiers to dynamically unlock
+        #     remaining_levels = self.n_levels - self.min_visible_levels
             
-            alpha = min(1.0, current_step / anneal_end_step)
-            progress = self.min_visible_levels + (alpha * remaining_levels)
+        #     alpha = min(1.0, current_step / anneal_end_step)
+        #     progress = self.min_visible_levels + (alpha * remaining_levels)
             
-            for i in range(self.n_levels):
-                if i < self.min_visible_levels:
-                    weights[i] = 1.0  
-                else:
-                    # Ramps fine features smoothly between 0.0 and 1.0
-                    weights[i] = max(0.0, min(1.0, progress - i))
+        #     for i in range(self.n_levels):
+        #         if i < self.min_visible_levels:
+        #             weights[i] = 1.0  
+        #         else:
+        #             # Ramps fine features smoothly between 0.0 and 1.0
+        #             weights[i] = max(0.0, min(1.0, progress - i))
 
         # -------------------------------------------------------------------------------
         # INDEPENDENT GRID SCALE INTERPOLATION
@@ -208,9 +208,9 @@ class HashEmbedder(nn.Module):
                 coords, voxel_min, voxel_max, voxel_embedds
             )
             
-            # Apply calculated structural fading windows
-            if weights[i] < 1.0:
-                coords_embedded = coords_embedded * weights[i]
+            # # Apply calculated structural fading windows
+            # if weights[i] < 1.0:
+            #     coords_embedded = coords_embedded * weights[i]
             
             coords_embedded_all.append(coords_embedded)
 
