@@ -164,55 +164,55 @@ def main(folder_name: str) -> None:
         res_model.train()
         model.sampler.n_samples = sampler_parameters["n_ray_samples"]
         
-        # for n_iter, ray_batch in enumerate(training_dataloader):
-        #     ray_batch = ray_batch.to(device, non_blocking=True)        
+        for n_iter, ray_batch in enumerate(training_dataloader):
+            ray_batch = ray_batch.to(device, non_blocking=True)        
 
-        #     # Apply camera pose optimization via residual deformation if enabled for this epoch
-        #     if epoch >= training_parameters["start_cam_opt"]:
-        #         d_rays_o, d_rays_rot = res_model(ray_batch[:, -1])
-        #         orig = ray_batch[:, :3]      
-        #         dirs = ray_batch[:, 3:6]     
-        #         tail = ray_batch[:, 6:]      
+            # Apply camera pose optimization via residual deformation if enabled for this epoch
+            if epoch >= training_parameters["start_cam_opt"]:
+                d_rays_o, d_rays_rot = res_model(ray_batch[:, -1])
+                orig = ray_batch[:, :3]      
+                dirs = ray_batch[:, 3:6]     
+                tail = ray_batch[:, 6:]      
 
-        #         new_orig = orig + d_rays_o
-        #         new_dirs = torch.einsum('bij,bj->bi', d_rays_rot, dirs) 
-        #         ray_batch = torch.cat([new_orig, new_dirs, tail], dim=-1)
+                new_orig = orig + d_rays_o
+                new_dirs = torch.einsum('bij,bj->bi', d_rays_rot, dirs) 
+                ray_batch = torch.cat([new_orig, new_dirs, tail], dim=-1)
 
-        #     # Perform dynamic vector slicing based on the chosen number of image channels
-        #     # Rays (6) | Labels (img_channels) | Driving Mask (1) | Image Index (1)
-        #     losses = trainer_agent.train_one_batch(
-        #         rays=ray_batch[:, :6], 
-        #         labels=ray_batch[:, 6 : 6 + img_channels],          
-        #         driving_mask=ray_batch[:, 6 + img_channels : 6 + img_channels + 1],    
-        #         app_idx=ray_batch[:, 6 + img_channels + 1 :],         
-        #         epoch=epoch, n_iter=n_iter, max_steps=max_steps, dl_len=dl_len
-        #     )
+            # Perform dynamic vector slicing based on the chosen number of image channels
+            # Rays (6) | Labels (img_channels) | Driving Mask (1) | Image Index (1)
+            losses = trainer_agent.train_one_batch(
+                rays=ray_batch[:, :6], 
+                labels=ray_batch[:, 6 : 6 + img_channels],          
+                driving_mask=ray_batch[:, 6 + img_channels : 6 + img_channels + 1],    
+                app_idx=ray_batch[:, 6 + img_channels + 1 :],         
+                epoch=epoch, n_iter=n_iter, max_steps=max_steps, dl_len=dl_len
+            )
             
-        #     loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app = losses
+            loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app = losses
             
-        #     # Log metrics to Tensorboard
-        #     writer.add_scalar("Train/Total_Loss", loss.item(), global_step)
-        #     writer.add_scalar("Train/Photometric_Loss", loss_photom.item(), global_step)
-        #     writer.add_scalar("Train/TV_Loss", loss_tv.item(), global_step)
-        #     writer.add_scalar("Train/Sparsity_Loss", loss_sparsity.item(), global_step)
-        #     writer.add_scalar("Train/Driving_Loss", loss_driving.item(), global_step)
-        #     writer.add_scalar("Train/Appearance_Loss", loss_app.item(), global_step)
+            # Log metrics to Tensorboard
+            writer.add_scalar("Train/Total_Loss", loss.item(), global_step)
+            writer.add_scalar("Train/Photometric_Loss", loss_photom.item(), global_step)
+            writer.add_scalar("Train/TV_Loss", loss_tv.item(), global_step)
+            writer.add_scalar("Train/Sparsity_Loss", loss_sparsity.item(), global_step)
+            writer.add_scalar("Train/Driving_Loss", loss_driving.item(), global_step)
+            writer.add_scalar("Train/Appearance_Loss", loss_app.item(), global_step)
             
-        #     global_step += 1
+            global_step += 1
                             
-        #     if training_parameters["verbose"] and n_iter % 10 == 0:
-        #         print(
-        #             f"[{epoch:02d}/{training_parameters['epochs']:02d}] "
-        #             f"Iter: {n_iter:04d}/{dl_len:04d} | "
-        #             f"Tot: {loss.item():.4f} | "
-        #             f"Photo: {loss_photom.item():.4f} | "
-        #             f"TV: {loss_tv.item():.4f} | "
-        #             f"Sparsity: {loss_sparsity.item():.4f} | "
-        #             f"Drive: {loss_driving.item():.4f} | "
-        #             f"App: {loss_app.item():.4f}"
-        #         )
+            if training_parameters["verbose"] and n_iter % 10 == 0:
+                print(
+                    f"[{epoch:02d}/{training_parameters['epochs']:02d}] "
+                    f"Iter: {n_iter:04d}/{dl_len:04d} | "
+                    f"Tot: {loss.item():.4f} | "
+                    f"Photo: {loss_photom.item():.4f} | "
+                    f"TV: {loss_tv.item():.4f} | "
+                    f"Sparsity: {loss_sparsity.item():.4f} | "
+                    f"Drive: {loss_driving.item():.4f} | "
+                    f"App: {loss_app.item():.4f}"
+                )
 
-        # writer.flush()
+        writer.flush()
 
         # -----------------------------------------------------------------------------------
         # VALIDATION PHASE (EVALUATION & RENDERING)

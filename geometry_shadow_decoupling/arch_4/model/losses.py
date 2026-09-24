@@ -68,9 +68,12 @@ def total_variation_loss(
     cube_embeddings = embeddings(hashed_indices)
 
     # Compute loss
-    tv_x = torch.pow(cube_embeddings[1:, :, :, :] - cube_embeddings[:-1, :, :, :], 2).sum()
-    tv_y = torch.pow(cube_embeddings[:, 1:, :, :] - cube_embeddings[:, :-1, :, :], 2).sum()
-    tv_z = torch.pow(cube_embeddings[:, :, 1:, :] - cube_embeddings[:, :, :-1, :], 2).sum()
+    # tv_x = torch.pow(cube_embeddings[1:, :, :, :] - cube_embeddings[:-1, :, :, :], 2).sum()
+    # tv_y = torch.pow(cube_embeddings[:, 1:, :, :] - cube_embeddings[:, :-1, :, :], 2).sum()
+    # tv_z = torch.pow(cube_embeddings[:, :, 1:, :] - cube_embeddings[:, :, :-1, :], 2).sum()
+    tv_x = torch.abs(cube_embeddings[1:, :, :, :] - cube_embeddings[:-1, :, :, :]).sum()
+    tv_y = torch.abs(cube_embeddings[:, 1:, :, :] - cube_embeddings[:, :-1, :, :]).sum()
+    tv_z = torch.abs(cube_embeddings[:, :, 1:, :] - cube_embeddings[:, :, :-1, :]).sum()
     tvl_val = ((tv_x + tv_y + tv_z) / cube_size)
 
     return tvl_val
@@ -91,20 +94,42 @@ def sigma_sparsity_loss(
 
 class TunableBimodalDrivingLoss(nn.Module):
     """
-    Implements a flexible driving objective utilizing pseudo-labels (e.g. DINO + SAM2)
-    with a continuous softness configuration parameter.
+    Custom Loss Module for driving NeRF geometry using noisy/estimated pseudo-labels 
+    (e.g., outputs from vision foundation models like DINOv2 or SAM2).
+
+    Key Features:
+    -------------
+    1. Confidence Adjustment (Gamma Correction): Modulates target sharpness/uncertainty.
+    2. Controlled Label Smoothing: Softens extreme predictions along noisy object boundaries.
+    3. Asymmetric Penalization (L2 vs L1): Uses a strict L2 penalty for background regions 
+       to aggressively suppress floating artifacts (floaters), and a more tolerant L1 
+       penalty for foreground regions to retain fine details.
+    4. Soft-Dice Loss: Enforces global structural layout consistency across viewpoints.
     """
     def __init__(
             self, 
-            softness: float = 0.25, 
-            gamma: float = 1.2, 
-            w_bg: float = 4.0, 
-            w_fg: float = 1.0, 
-            dice_weight: float = 0.5,
-            epsilon: float = 1e-5
+            softness: float = 0.05,  # Keep low (e.g., 0.02 - 0.05) to avoid foggy background baselines
+            gamma: float = 1.0,      # Controls non-linear target scaling (gamma > 1 sharpens, < 1 softens)
+            w_bg: float = 4.0,       # High background weight to aggressively clear out artifacts
+            w_fg: float = 1.0,       # Foreground weight for object geometry reconstruction
+            dice_weight: float = 0.5, # Balance coefficient for global layout structural loss
+            epsilon: float = 1e-5    # Small constant to prevent division by zero in Dice loss
     ):
+        """
+        Initializes hyperparameters for target adjustment and hybrid loss terms.
+
+        Args:
+            softness (float): Clamped amount of target interpolation towards 0.5. Range: [0.0, 0.2].
+            gamma (float): Exponent power applied to target probabilities to reshape confidence.
+            w_bg (float): Multiplier weight for background region penalty.
+            w_fg (float): Multiplier weight for foreground region penalty.
+            dice_weight (float): Multiplier weight for the Soft-Dice loss component.
+            epsilon (float): Numerical stability constant.
+        """
         super(TunableBimodalDrivingLoss, self).__init__()
-        self.softness = max(0.0, min(1.0, softness))
+        
+        # Clamp softness between 0.0 and 0.2 to prevent excessive baseline drift
+        self.softness = max(0.0, min(0.2, softness))
         self.gamma = gamma
         self.w_bg = w_bg
         self.w_fg = w_fg
@@ -117,25 +142,70 @@ class TunableBimodalDrivingLoss(nn.Module):
             pseudo_target: torch.Tensor
     ) -> torch.Tensor:
         """
-        Calculates the relaxed optimization cost over dynamically blended target references.
+        Computes the combined Asymmetric L1/L2 and Soft-Dice objective.
+
+        Args:
+            pred_mask (torch.Tensor): Model predictions (e.g., rendered ray opacities or soft 
+                                      segmentation logits mapped to [0, 1]).
+            pseudo_target (torch.Tensor): Estimated pseudo-labels from SAM2/DINO in range [0, 1].
+
+        Returns:
+            torch.Tensor: Scalar loss tensor combining asymmetric penalties and soft-dice structural loss.
         """
+        # Flatten spatial/ray dimensions into 1D vectors for efficient vectorized operations
         pred = pred_mask.view(-1)
         target = pseudo_target.view(-1)
 
-        # --- CONTINUOUS TARGET SOFTENING TRANSFORMATION ---
-        target_tuned = self.softness * 0.5 + (1.0 - self.softness) * torch.pow(target, self.gamma)
+        # -------------------------------------------------------------------------
+        # 1. Target Confidence Reshaping (Gamma Correction)
+        # -------------------------------------------------------------------------
+        # Gamma scaling selectively shifts confidence curves.
+        # Gamma > 1.0 suppresses uncertain background noise (pushes low probabilities closer to 0).
+        # Gamma < 1.0 boosts low-confidence foreground regions.
+        if self.gamma != 1.0:
+            target = torch.pow(target, self.gamma)
 
-        # 1. Asymmetric Penalization Component
+        # -------------------------------------------------------------------------
+        # 2. Controlled Label Smoothing
+        # -------------------------------------------------------------------------
+        # Contracts target probabilities towards 0.5 according to `self.softness`.
+        # Softens extreme binary targets (0 -> softness/2, 1 -> 1 - softness/2)
+        # to prevent gradient explosion on view-inconsistent mask boundaries.
+        if self.softness > 0.0:
+            target_tuned = target * (1.0 - self.softness) + 0.5 * self.softness
+        else:
+            target_tuned = target
+
+        # -------------------------------------------------------------------------
+        # 3. Asymmetric Penalization Component (L2 Background / L1 Foreground)
+        # -------------------------------------------------------------------------
+        # Background Loss (L2):
+        # Weighted by (1.0 - target_tuned). Uses quadratic penalty (pred^2) to exert strong
+        # downward pressure on low-density predictions, clearing out floating 3D density artifacts.
         bg_loss = torch.mean((1.0 - target_tuned) * torch.square(pred))
+
+        # Foreground Loss (L1):
+        # Weighted by target_tuned. Uses absolute difference |pred - target| to provide linear,
+        # stable gradients that tolerate minor view-inconsistencies along fine object boundaries.
         fg_loss = torch.mean(target_tuned * torch.abs(pred - target_tuned))
+        
+        # Combine weighted background and foreground components
         asymmetric_term = (self.w_bg * bg_loss) + (self.w_fg * fg_loss)
 
-        # 2. Soft-Dice Layout Loss Component
+        # -------------------------------------------------------------------------
+        # 4. Soft-Dice Layout Loss Component
+        # -------------------------------------------------------------------------
+        # Computes overlap over continuous predictions and targets. Ensures global structural
+        # consistency and prevents partial object collapse across views.
         intersection = torch.sum(pred * target_tuned)
         union = torch.sum(torch.square(pred)) + torch.sum(torch.square(target_tuned))
         dice_term = 1.0 - (2.0 * intersection + self.epsilon) / (union + self.epsilon)
 
+        # -------------------------------------------------------------------------
+        # 5. Total Combined Loss Output
+        # -------------------------------------------------------------------------
         total_driving_loss = asymmetric_term + (self.dice_weight * dice_term)
+        
         return total_driving_loss
 
 

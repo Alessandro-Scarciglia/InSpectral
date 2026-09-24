@@ -83,6 +83,8 @@ class Trainer:
             beta=0.5
         )
 
+        #self.driving_loss = TunableBimodalDrivingLoss()
+
         # Setup optimizer grouping
         self.optimizer = torch.optim.AdamW(
             [
@@ -139,6 +141,7 @@ class Trainer:
         
         # --- TOTAL VARIATION LOSS (HYBRID / SHADOW METRIC) ---
         if epoch <= self.stop_tv_epoch:
+            
             # Active computation inside the gradient graph
             loss_tv = sum(
                 total_variation_loss(

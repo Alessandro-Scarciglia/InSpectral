@@ -13,8 +13,8 @@ import torch
 # - data_path / test_path: Fixed paths pointing to your preprocessed .npy matrices and raw datasets.
 # =======================================================================================
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat8_v3_4_nominal_images_mask_arch_4_res512_min23.43_max40.00_rgb.npy",
-    "test_path": "/home/vision/Desktop/Datasets/Landsat8_v3/",
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min23.43_max40.00_rgb.npy",
+    "test_path": "/home/vision/Desktop/Datasets/Landsat8_v4/",
     "mode": "rgb"
 }
 
@@ -28,7 +28,7 @@ dataset_parameters = {
 cfg_parameters = {
     "resolution": 512,
     "channels": 1 if dataset_parameters["mode"] == "ir" else 3,
-    "device": "cuda:0"
+    "device": "cuda"
 }
 
 # =======================================================================================
@@ -99,7 +99,7 @@ sh_parameters = {
 # =======================================================================================
 app_parameters = {
     "embeddings_num": 90,
-    "embeddings_dim": 6
+    "embeddings_dim": 12
 }
 
 # =======================================================================================
@@ -163,7 +163,7 @@ training_parameters = {
     "photometric_loss_weight": 1,
     "tv_loss_weight": 1e-7, 
     "sparsity_loss_weight": 1e-7,
-    "similarity_loss_weight": 1e-2,     
+    "similarity_loss_weight": 0,     
     "emb_norm_loss_weight": 1e-1,
     
     # --- TUNABLE BI-MODAL DRIVING LOSS PARAMETERS ---
@@ -178,9 +178,9 @@ training_parameters = {
     
     # Scheduling & Execution Flags
     "decay_rate": 0.99,
-    "decay_steps": 2,
+    "decay_steps": 5,
     "verbose": True,
-    "pretrained": True,
+    "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_nerf.pt",
     "checkpoint_res": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_res.pt"
 }

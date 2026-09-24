@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 # =======================================================================================
 CONFIG = {
     "target_resolution": 512,
-    "src_dataset": "Landsat8_v3",
+    "src_dataset": "Landsat8_v4",
     "arch": "arch_4",
     "deg_res": 4,
     
@@ -25,11 +25,11 @@ CONFIG = {
     "image_type": "rgb", 
     
     # AGGIORNATO: Specifica il percorso relativo interno alla cartella del dataset
-    "masked": "images/mask",  
+    "masked": "images/mask_sam2_grounded_bi",  
     "trajectory_type": "nominal",
     
     # Input path setup
-    "data_path": "/home/vision/Desktop/Datasets/Landsat8_v3/",
+    "data_path": "/home/vision/Desktop/Datasets/Landsat8_v4/",
     
     # Output path setup
     "data_dst_dir": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/"
