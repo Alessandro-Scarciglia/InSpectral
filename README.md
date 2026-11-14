@@ -237,7 +237,7 @@ Expect the APIs in this area to change while that work is merged.
 ## 📄 Publications
 
 - *Learning-based 3D reconstruction from single-orbit data*, SPAICE 2026.
-- A journal paper in *Advances in Space Research* is forthcoming.
+- A journal paper regarding the end-to-end algorithm and dataset design is forthcoming.
 
 ---
 
