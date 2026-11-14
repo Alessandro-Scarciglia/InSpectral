@@ -10,7 +10,7 @@
 </p>
 
 <h1 align="center">InSpectral</h1>
-<p align="center"><b>See an unknown object in orbit from a handful of pictures, then rebuild its shape and the way it reflects light.</b></p>
+<p align="center"><b>See an unknown object in orbit from a handful of pictures, then rebuild its shape and appearance.</b></p>
 
 ---
 
@@ -20,7 +20,6 @@ Earth orbit is getting crowded. Besides active satellites there are thousands of
 
 - **What shape is it?** Bus, solar arrays, antennas, appendages, damage.
 - **How does it reflect light?** Materials, MLI, solar panels, specular surfaces.
-- **How is it behaving?** Attitude, tumbling, configuration changes, unexpected manoeuvres.
 
 **InSpectral** is the code base of my PhD research on exactly this problem. An inspector spacecraft flies around the target and takes images. A **neural radiance field (NeRF)** turns those images into a **3D model of the RSO's geometry and photometry**. From that model you can
 
