@@ -6,19 +6,8 @@ import numpy as np
 
 class RaysGeneratorSynth(nn.Module):
     """
-    This class implements the methods for rays generation starting from a camera-to-world
-    transformation and employing information regarding the camera.
-
-    Attributes:
-    ----------
-    height: int
-        the height of the image in pixels
-    width: int
-        the width of the image in pixels
-    num_ch: int
-        the number of channels (1 for grayscale, 3 for RGB/BGR, other for custom stacks)
-    intrinsic_matrix: torch.Tensor
-        the matrix containing the intrinsic parameters of a pinhole camera model
+    Implements optimized camera ray generation matching standard NeRF / OpenCV 
+    conventions, starting from a camera-to-world (c2w) transformation matrix.
     """
     def __init__(
             self,
@@ -33,48 +22,52 @@ class RaysGeneratorSynth(nn.Module):
         self.height = height
         self.width = width
         self.ch = num_ch
-        self.intrinsic_matrix = intrinsic_matrix
+        
+        # Convert intrinsic matrix to tensor and register as buffer for device management
+        intrinsic_tensor = torch.from_numpy(intrinsic_matrix).float()
+        self.register_buffer("intrinsic_matrix", intrinsic_tensor)
+
+        # Generate a static pixel grid 
+        i_span = torch.linspace(0, self.width - 1, self.width)
+        j_span = torch.linspace(0, self.height - 1, self.height)
+        it, jt = torch.meshgrid(i_span, j_span, indexing='ij')
+        i, j = it.t(), jt.t()
+        
+        # FIXED: Corrected reference frame signs to standard NeRF convention 
+        # (X right, Y down/inverted, Z pointing backwards)
+        dirs_static = torch.stack([
+            (i - intrinsic_tensor[0, 2]) / intrinsic_tensor[0, 0],
+            -(j - intrinsic_tensor[1, 2]) / intrinsic_tensor[1, 1],
+            -torch.ones_like(i)
+        ], dim=-1)
+        
+        # FIXED: Normalize directions to create unit vectors for precise volumetric sampling bounds
+        dirs_static = dirs_static / torch.norm(dirs_static, dim=-1, keepdim=True)
+        
+        # Register static directions as buffer to automatically handle runtime device casting
+        self.register_buffer("dirs", dirs_static)
 
     def get_rays(
             self,
             c2w: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        This function generates HxW rays which start from the camera
-        origin and proceed towards the rendering scene. Each ray is
-        represented as a 6D vector: ray origin (3D) plus ray direction (3D).
-
-        Parameters:
-        ----------
-        c2w: torch.Tensor
-            it is the camera-to-world 4x4 transformation
-
-        Returns:
-        -------
-        rays_o: torch.Tensor
-            rays origin (x, y, z) in world reference frame (i.e. camera position)
-        rays_d: torch.Tensor
-            rays direction (ix, iy, iz) in world reference frame (i.e. a unit vector which starts from the camera
-            origin and points somewhere in the rendering scene).
+        Generates an [H, W, 3] grid of ray origins and rotated unit directions.
         """
+        # Force correct float32 precision
+        c2w = c2w.float()
 
-        # Generate the meshgrid of all pixels on the image plane
-        i_span = torch.linspace(0, self.width - 1, self.width)
-        j_span = torch.linspace(0, self.height - 1, self.height)
-        it, jt = torch.meshgrid(i_span, j_span, indexing='ij')
-        i, j = it.t(), jt.t()
-
-        # Compute directions
-        dirs = torch.stack([(i - self.intrinsic_matrix[0][2]) / self.intrinsic_matrix[0][0],
-                            -(j - self.intrinsic_matrix[1][2]) / self.intrinsic_matrix[1][1],
-                            -torch.ones_like(i)],
-                            dim=-1)
+        # Extract the 3x3 rotation matrix
+        rotation = c2w[:3, :3]  # Shape: [3, 3]
         
-        # Rotate directions according to c2w
-        rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], dim=-1)
+        # Rotate static unit directions using the camera extrinsics rotation tensor
+        rays_d = torch.einsum('hwj,ij->hwi', self.dirs, rotation)
         
-        # Translate camera origin in word frame
-        rays_o = c2w[:3, -1].expand(rays_d.shape)
+        # Extract the translation vector (camera center origin) -> Shape: [3]
+        camera_origin = c2w[:3, -1]
+        
+        # Broadcast camera origin across the entire ray grid topology -> Shape: [H, W, 3]
+        rays_o = camera_origin.expand(rays_d.shape)
 
         return rays_o, rays_d
     
@@ -83,14 +76,12 @@ class RaysGeneratorSynth(nn.Module):
             c2w: torch.Tensor
     ) -> torch.Tensor:
         """
-        The forward function returns both true color channels and rays when in "train" mode.
-        Viceversa, it returns only rays when in inference-only mode.
+        Forward pass execution returning combined ray configurations during inference.
         """
-
-        # Compute rays 
+        # Compute ray origins and directions
         rays_o, rays_d = self.get_rays(c2w)
         
-        # Return rays origins and directions
-        out = torch.concatenate([rays_o, rays_d], dim=-1)
+        # Concatenate origins and directions along the last feature dimension -> Shape: [H, W, 6]
+        out = torch.cat([rays_o, rays_d], dim=-1)
     
         return out

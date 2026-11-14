@@ -1,104 +1,327 @@
 # Import modules
 import torch
 import torch.nn as nn
-from torch.nn.functional import relu
-from torch.distributions import Categorical
+import torch.nn.functional as F
+
 from config_parameters import *
-from model.profiler import timing_decorator
 
 
 class Integrator(nn.Module):
     """
-    This class implements the integration of all estimates made along the say directions (per each sample)
-    and computes the transmittance integral to retrieve the value of the corresponding pixel.
+    Volumetric NeRF integrator.
 
-    Attributes:
-    ----------
-    device: str
-        it is the target device for computation ("cpu" by default or "cuda", or even a specific GPU "cuda:x")
+    Outputs:
+        chs_map:
+            Integrated color / appearance channels.
+
+        depth_map:
+            Linear inverse depth in [0, 1]:
+
+                near -> 1.0 -> white
+                far  -> 0.0 -> black
+
+            Background rays are forced to zero.
+
+            Shape: [N]
+
+        sparsity_loss:
+            Shannon entropy sparsity regularization.
+
+        mask:
+            Accumulated volumetric opacity in [0, 1].
+
+            Shape: [N, 1]
     """
+
     def __init__(
-            self,
-            device : str = 'cpu'
+        self,
+        near_depth: float = 0.000,
+        far_depth: float = 1.125,
+        device: str = "cpu",
     ):
         super(Integrator, self).__init__()
 
-        # Attributes
+        self.near_depth = float(near_depth)
+        self.far_depth = float(far_depth)
         self.device = torch.device(device)
 
-    #@timing_decorator
+        if self.far_depth <= self.near_depth:
+            raise ValueError(
+                f"far_depth ({self.far_depth}) must be greater than "
+                f"near_depth ({self.near_depth})."
+            )
+
     def forward(
-            self,
-            raw: torch.Tensor,
-            zvals: torch.Tensor,
-            rays_d: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        '''
-        It computes the accumulated transmittance along each ray.
+        self,
+        raw: torch.Tensor,
+        zvals: torch.Tensor,
+        rays_d: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
-        Parameters:
-        ----------
-        raw: torch.Tensor[float]
-            it is the output of NeRF model inference. It is already filtered with a keep_mask, to zero
-            all the estimates made out of the rendering volume.
-        zvals: torch.Tensor[float]
-            it represents the depth of each sample along the ray, for each ray in the batch.
-        rays_d: torch.Tensor[float]
-            it is the collection of all the batch ray directions in the rendering scene.
+        # ==========================================================================
+        # 1. DEVICE / DTYPE
+        # ==========================================================================
 
-        Returns:
-        -------
-        chs_map: torch.Tensor[float]
-            it is the tensor containing all the channels estimates of the batch pixels.
-        depth_map: torch.Tensor[float]
-            it is the depthmap in 0-255 where 0 corresponds to 'near' and 255 to 'far' values set in the 
-            configuration file. It is the distance from the camera origin at which sampling starts/ends. To have a 
-            consistent metrics, it is suggested to fix same boundaries as in Blender simulation [8-16].
-        sparsity_loss: torch.Tensor[float]
-            it is a loss which penalizes uniformity in weights along samples (based on Information Entropy principle).
-        mask: torch.Tensor[float]
-            the segmentation mask obtained from volume density estimates.
-        '''
+        device = raw.device
+        dtype = raw.dtype
 
-        # Bring inputs to target device
-        raw = raw.to(self.device)
-        zvals = zvals.to(self.device)
-        rays_d = rays_d.to(self.device)
+        if zvals.device != device or zvals.dtype != dtype:
+            zvals = zvals.to(
+                device=device,
+                dtype=dtype,
+            )
 
-        # Define a lambda function to compute alphas from samples
-        raw2alpha = lambda raw, dists, act_fn = relu: 1. - torch.exp(-act_fn(raw) * dists)
+        if rays_d.device != device or rays_d.dtype != dtype:
+            rays_d = rays_d.to(
+                device=device,
+                dtype=dtype,
+            )
 
-        # Compute distances and reshape as [rays, samples]
+        # ==========================================================================
+        # 2. SPLIT COLOR AND DENSITY
+        # ==========================================================================
+
+        num_color_channels = cfg_parameters["channels"]
+
+        if raw.shape[-1] <= num_color_channels:
+            raise ValueError(
+                "Invalid raw tensor shape. Expected at least "
+                f"{num_color_channels + 1} channels, but received "
+                f"{raw.shape[-1]}."
+            )
+
+        chs = raw[..., :num_color_channels]
+        density = raw[..., num_color_channels]
+
+        # ==========================================================================
+        # 3. DISTANCES BETWEEN CONSECUTIVE SAMPLES
+        # ==========================================================================
+
         dists = zvals[..., 1:] - zvals[..., :-1]
-        dists = torch.cat([dists, torch.full(dists[..., :1].shape, 1e10, device=self.device)], dim=-1)
-        dists *= torch.norm(rays_d[..., None, :], dim=-1)
 
-        # Extracts channes values 
-        chs = raw[..., :cfg_parameters["channels"]]
+        # Last sample gets a large integration interval.
+        last_dist = torch.full_like(
+            zvals[..., :1],
+            1e10,
+        )
 
-        # Compute alphas and cumulative product
-        alpha = raw2alpha(raw[..., -1], dists)
-        tmp = torch.cat([torch.ones((alpha.shape[0], 1), device=self.device), 1. - alpha + 1e-10], dim=-1)
-        cumprod = torch.cumprod(tmp, dim=-1)[:, :-1]
+        dists = torch.cat(
+            [
+                dists,
+                last_dist,
+            ],
+            dim=-1,
+        )
 
-        # Compute integration weights and channels values, as [rays, chs]
-        weights = alpha * cumprod
-        mask = torch.clamp(torch.sum(weights, dim=-1), min=0.0, max=1.1).unsqueeze(-1)
-        chs_map = torch.sum(weights[..., None] * chs, dim=-2)
-        torch.clamp(chs_map, 0.0, 1.0)
+        # Convert z-distance to Euclidean distance.
+        ray_norm = torch.norm(
+            rays_d,
+            dim=-1,
+            keepdim=True,
+        )
 
-        # Compute integration of weights and densities for depth, as [rays, depth]
-        zvals = (sampler_parameters["far"] - zvals) / (sampler_parameters["far"] - sampler_parameters["near"])
-        depth_map = torch.sum(weights * zvals, dim=-1) / (torch.sum(weights, dim=-1) + 1e-5)
-        torch.clamp(depth_map, 0.0, 1.0)
+        dists = dists * ray_norm
 
-        # Finally, compute weights sparsity loss
-        try:
-            sparsity_loss = Categorical(
-                probs = torch.cat([weights, 1.0 - weights.sum(-1, keepdim=True) + 1e-6], dim=-1)
-            ).entropy().sum()
-        except:
-            sparsity_loss = torch.tensor(0.0, device=self.device)
-            print("Warning: Sparsity Loss cannot be computed.")
+        # ==========================================================================
+        # 4. DENSITY -> ALPHA
+        # ==========================================================================
 
-        return chs_map, depth_map, sparsity_loss, mask
+        density = F.relu(density)
+
+        alpha = 1.0 - torch.exp(
+            -density * dists
+        )
+
+        alpha = torch.clamp(
+            alpha,
+            min=0.0,
+            max=1.0,
+        )
+
+        # ==========================================================================
+        # 5. TRANSMITTANCE
+        # ==========================================================================
+
+        eps = 1e-10
+
+        transmittance = torch.cumprod(
+            torch.cat(
+                [
+                    torch.ones_like(alpha[..., :1]),
+                    1.0 - alpha + eps,
+                ],
+                dim=-1,
+            ),
+            dim=-1,
+        )[..., :-1]
+
+        # ==========================================================================
+        # 6. VOLUMETRIC WEIGHTS
+        # ==========================================================================
+
+        weights = alpha * transmittance
+
+        # ==========================================================================
+        # 7. ACCUMULATED OPACITY / OBJECT MASK
+        # ==========================================================================
+
+        accumulated_opacity = torch.sum(
+            weights,
+            dim=-1,
+        )
+
+        accumulated_opacity = torch.clamp(
+            accumulated_opacity,
+            min=0.0,
+            max=1.0,
+        )
+
+        # Shape: [N, 1]
+        mask = accumulated_opacity.unsqueeze(-1)
+
+        # ==========================================================================
+        # 8. INTEGRATE COLOR / APPEARANCE
+        # ==========================================================================
+
+        chs_map = torch.sum(
+            weights[..., None] * chs,
+            dim=-2,
+        )
+
+        chs_map = torch.clamp(
+            chs_map,
+            min=0.0,
+            max=1.0,
+        )
+
+        # ==========================================================================
+        # 9. COMPUTE SURFACE DEPTH
+        # ==========================================================================
+
+        # IMPORTANT:
+        #
+        # Do NOT use only:
+        #
+        #     depth = sum(weights * zvals)
+        #
+        # because that makes low-opacity rays appear artificially close
+        # to the camera.
+        #
+        # Instead, normalize by the accumulated opacity:
+        #
+        #     depth = sum(weights * zvals) / sum(weights)
+        #
+        # This gives the expected depth conditioned on the ray hitting
+        # the reconstructed geometry.
+
+        weighted_depth = torch.sum(
+            weights * zvals,
+            dim=-1,
+        )
+
+        depth = weighted_depth / (
+            accumulated_opacity + eps
+        )
+
+        # ==========================================================================
+        # 10. NORMALIZE DEPTH TO [0, 1]
+        # ==========================================================================
+
+        depth_range = (
+            self.far_depth - self.near_depth
+        )
+
+        normalized_depth = (
+            depth - self.near_depth
+        ) / depth_range
+
+        normalized_depth = torch.clamp(
+            normalized_depth,
+            min=0.0,
+            max=1.0,
+        )
+
+        # ==========================================================================
+        # 11. INVERT DEPTH TO MATCH GROUND TRUTH
+        # ==========================================================================
+
+        # Your ground-truth convention is:
+        #
+        #     0 m       -> 1.0 -> white
+        #     40 m      -> 0.0 -> black
+        #
+        # Therefore:
+        #
+        #     near -> 1
+        #     far  -> 0
+        #
+        # Larger geometric depth means smaller output value.
+
+        depth_map = 1.0 - normalized_depth
+
+        # ==========================================================================
+        # 12. DEPTH GAMMA
+        # ==========================================================================
+
+        depth_gamma = 1.0
+
+        depth_map = torch.pow(
+            depth_map,
+            depth_gamma,
+        )
+
+        # ==========================================================================
+        # 13. SUPPRESS BACKGROUND
+        # ==========================================================================
+
+        # Rays with essentially zero accumulated opacity do not contain
+        # a reconstructed surface.
+        #
+        # Their depth must therefore be zero, matching the background
+        # convention of the ground-truth depth image.
+
+        depth_map = depth_map * accumulated_opacity
+
+        # ==========================================================================
+        # 14. FINAL CLAMP
+        # ==========================================================================
+
+        depth_map = torch.clamp(
+            depth_map,
+            min=0.0,
+            max=1.0,
+        )
+
+        # Keep depth_map as [N].
+        #
+        # performances.py performs:
+        #
+        #     test_depth.unsqueeze(-1)
+        #
+        # before computing MAE.
+
+        # ==========================================================================
+        # 15. SHANNON ENTROPY SPARSITY LOSS
+        # ==========================================================================
+
+        entropy = -weights * torch.log(
+            weights + eps
+        )
+
+        sparsity_loss = torch.mean(
+            torch.sum(
+                entropy,
+                dim=-1,
+            )
+        )
+
+        # ==========================================================================
+        # 16. RETURN
+        # ==========================================================================
+
+        return (
+            chs_map,          # [N, channels]
+            depth_map,        # [N]
+            sparsity_loss,    # scalar
+            mask,             # [N, 1]
+        )

@@ -1,41 +1,73 @@
-# Import modules
+"""
+Global hyperparameter configuration file for joint NeRF and Pose Optimization.
+Updated to dynamically match the unit-box centered dataset normalization properties,
+and incorporate the tunable bimodal driving loss parameters.
+"""
+
 import torch
 
-
-# Dataset parameters
+# =======================================================================================
+# DATASET PARAMETERS
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - data_path / test_path: Fixed paths pointing to your preprocessed .npy matrices and raw datasets.
+# =======================================================================================
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/colour_512_radialboost_m30_training_4_masked_arch_4_std00.npy",
-    "test_path": "/home/vision/Desktop/Datasets/Landsat8/colour_512_radialboost_m30_training"
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min23.43_max40.00_rgb.npy",
+    "test_path": "/home/vision/Desktop/Datasets/Landsat8_v4/",
+    "mode": "rgb"
 }
 
-
-# General setup
+# =======================================================================================
+# GENERAL SETUP
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - resolution: Higher values (↑) increase spatial details but scale memory/computation quadratically.
+# - channels: Dictated by data type (e.g., 3 for RGB, higher if working with multispectral/hyperspectral bands).
+# =======================================================================================
 cfg_parameters = {
     "resolution": 512,
-    "channels": 3,
-    "device": "cuda:0"
+    "channels": 1 if dataset_parameters["mode"] == "ir" else 3,
+    "device": "cuda"
 }
 
-
-# Parameter dictionary for rays generation
+# =======================================================================================
+# RAYS GENERATION CONFIGURATION
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - Matches cfg_parameters to map pixel-to-ray rendering ratios. Keep linked to main resolution.
+# =======================================================================================
 rays_parameters = {
     "height": cfg_parameters["resolution"],
     "width": cfg_parameters["resolution"],
     "num_ch": cfg_parameters["channels"],
 }
 
+# =======================================================================================
+# SAMPLING & GEOMETRIC BOUNDS (UNIT BOX CONSTRAINED)
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - SCENE: Controls the world bounding radius. Must encapsulate the scaled payload/object.
+# - n_ray_samples: Higher values (↑) resolve sharper geometry/edges but slow down training/inference.
+# - near / far: Keep tightly bound around your target object scene to avoid wasting ray sampling capacity.
+# =======================================================================================
+SCALE = 1.0
+SCENE = 0.25
 
-# Parameter dictionary for sampler
-SCALE = 8.0
-SCENE = 8 / SCALE
 sampler_parameters = {
     "n_ray_samples": 64,
-    "near": 5 / SCALE,
-    "far": 40 / SCALE
+    "near": 0.4,
+    "far": 0.4,
 }
 
-
-# Parameter dictionary for hash embedder
+# =======================================================================================
+# HASH EMBEDDER PARAMETERS
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - n_levels / high_res: Higher (↑) captures finer high-frequency details but may introduce noise/artifacts.
+# - log2_hashmap_size: Increase (↑) if experiencing hash collisions (blurry shapes), at the cost of VRAM.
+# - min_visible_levels: Higher values (↑) force high frequencies early; lower values (↓) ensure smooth warm-up.
+# =======================================================================================
 hash_parameters = {
     "bbox": (torch.tensor([-SCENE, -SCENE, -SCENE]),
              torch.tensor([SCENE, SCENE, SCENE])),
@@ -44,53 +76,111 @@ hash_parameters = {
     "log2_hashmap_size": 19,
     "low_res": 16,
     "high_res": 512,
+    "min_visible_levels": 16
 } 
 
-
-# Parameter dictionary for sh embedder
+# =======================================================================================
+# SPHERICAL HARMONICS EMBEDDER PARAMETERS
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - degree: Higher (↑) models sharper specular reflections and view-dependent effects but risks overfitting.
+# =======================================================================================
 sh_parameters = {
     "input_dim": 3,
     "degree": 4
 }
 
-# Parameters for appearance embedder
+# =======================================================================================
+# APPEARANCE EMBEDDER PARAMETERS
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - embeddings_num: Must match or exceed the total number of unique frames/images in your training set.
+# - embeddings_dim: Higher (↑) captures complex lighting/shadow fluctuations across frames but requires more data.
+# =======================================================================================
 app_parameters = {
     "embeddings_num": 90,
-    "embeddings_dim": 4
+    "embeddings_dim": 12
 }
 
-
-# Parameter dictionary for SmallNeRF 
+# =======================================================================================
+# CORE BACKBONE (SMALLNERF) ARCHITECTURE
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - n_layers / hidden_dim: Higher (↑) increases representation capacity for complex scenes but raises overfitting risks.
+# - out_ch: Keep at 4 (RGB + Density/Sigma) to assure direct, native volumetric calculations.
+# =======================================================================================
 nerf_parameters = {
     "n_layers": 2,
     "hidden_dim": 128,
     "geo_feat_dim": 16,
     "n_layers_color": 2,
-    "hidden_dim_color": 256,
+    "hidden_dim_color": 128,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["degree"] ** 2,
-    "out_ch": cfg_parameters["channels"],
+    "out_ch": 1 if dataset_parameters["mode"] == "ir" else 3,                        
+    "input_app_dim": app_parameters["embeddings_dim"]
 }
 
+# =======================================================================================
+# LEARNABLE CAMERA POSE RESIDUALS CONFIGURATION
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - lin_range / ang_range: Limits bounds for camera optimization (BARF setup). 
+#   Too high (↑) destabilizes trajectories; too low (↓) prevents correcting large camera registration errors.
+# =======================================================================================
+res_model_parameters = {
+    "embeddings_num": 90,
+    "embeddings_dim": 6,
+    "lin_range": 0.25 / SCALE,            
+    "ang_range": 10 * (torch.pi / 180)    
+}
 
-# Parameter dictionary for training 
+# =======================================================================================
+# MULTI-TASK TRAINING HYPERPARAMETERS
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - lr / emb_lr / res_lr: Main learning rates. If pose updates fail, increase res_lr (↑) or delay start_cam_opt.
+# - start_cam_opt: Epoch to start camera tuning. Keep high enough to let the static NeRF geometry stabilize first.
+# - tv_loss_weight: Higher (↑) reduces high-frequency noise and floats, but too high smooths out sharp textures.
+# - sparsity_loss_weight: Higher (↑) cleans background artifacts but too high aggressively erases thin object geometry.
+# - similarity_loss_weight: High values (↑) enforce smooth, consistent appearance adjustments across different frames.
+# - stop_tv_epoch / start_seg_epoch: Temporal anchors to transition training from rough layout to precise masking.
+# - driving_loss_softness / gamma: Controls segmentation sharpness. Lower softness (↓) yields sharper mask borders.
+# - driving_loss_w_bg / w_fg: Imbalance weights. Increase w_bg (↑) if background noise sneaks into predictions.
+# =======================================================================================
 training_parameters = {
-    "training_batch": 32*32*8,
-    "epochs": 15,
-    "lr": 0.001,
+    "training_batch": 32*32*4,
+    "epochs": 30,
+    "lr": 1e-4,
+    "res_lr": 1e-2,
+    "app_lr": 1e-4,
+    "emb_lr": 1e-3,
+    "start_cam_opt": 40,     
     "betas": (0.9, 0.999),
     "eps": 1e-8,
-    "tv_loss_weight": 1e-8,
-    "stop_tv_epoch": 20,
-    "start_seg_epoch": 0,
+    
+    # Core Reconstruction and Regularization Optimization Weights
+    "photometric_loss_weight": 1,
+    "tv_loss_weight": 1e-7, 
     "sparsity_loss_weight": 1e-7,
-    "bce_dice_loss_weight": 1e-1,
-    "bce_loss_weight": 0.5,
-    "dice_loss_weight": 0.5,
-    "similarity_loss_weight": 0,
-    "decay_rate": 0.9,
+    "similarity_loss_weight": 0,     
+    "emb_norm_loss_weight": 1e-1,
+    
+    # --- TUNABLE BI-MODAL DRIVING LOSS PARAMETERS ---
+    "stop_tv_epoch": 30,                
+    "start_seg_epoch": 0,
+    "bce_dice_loss_weight": 1e1,        
+    "driving_loss_softness": 0,       
+    "driving_loss_gamma": 1.2,          
+    "driving_loss_w_bg": 4.0,           
+    "driving_loss_w_fg": 1.0,           
+    "driving_loss_dice_weight": 0.5,    
+    
+    # Scheduling & Execution Flags
+    "decay_rate": 0.99,
     "decay_steps": 5,
     "verbose": True,
     "pretrained": False,
-    "checkpoint": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-02-13_12-15-08/epoch_11/chkpt.pt"
+    "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_nerf.pt",
+    "checkpoint_res": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_res.pt"
 }
