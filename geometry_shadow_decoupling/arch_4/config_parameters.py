@@ -13,7 +13,7 @@ import torch
 # - data_path / test_path: Fixed paths pointing to your preprocessed .npy matrices and raw datasets.
 # =======================================================================================
 dataset_parameters = {
-    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min23.43_max40.00_rgb.npy",
+    "data_path": "geometry_shadow_decoupling/arch_4/data/postprocessed_dataset/Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min22.88_max40.72_rgb_radial0.030_rhor0.90_point0.200_rhop0.90.npy",
     "test_path": "/home/vision/Desktop/Datasets/Landsat8_v4/",
     "mode": "rgb"
 }
@@ -58,6 +58,9 @@ sampler_parameters = {
     "n_ray_samples": 64,
     "near": 0.4,
     "far": 0.4,
+    "enable_hierarchical_sampling": False,
+    "n_importance_samples": 32,
+    "importance_eps": 1e-5,
 }
 
 # =======================================================================================
@@ -67,6 +70,8 @@ sampler_parameters = {
 # - n_levels / high_res: Higher (↑) captures finer high-frequency details but may introduce noise/artifacts.
 # - log2_hashmap_size: Increase (↑) if experiencing hash collisions (blurry shapes), at the cost of VRAM.
 # - min_visible_levels: Higher values (↑) force high frequencies early; lower values (↓) ensure smooth warm-up.
+# - level_warmup_start_epoch: Keep only the minimum levels active before this zero-based epoch.
+# - level_warmup_steps: Ramp duration after the start epoch; 0 uses half of total training steps.
 # =======================================================================================
 hash_parameters = {
     "bbox": (torch.tensor([-SCENE, -SCENE, -SCENE]),
@@ -76,7 +81,10 @@ hash_parameters = {
     "log2_hashmap_size": 19,
     "low_res": 16,
     "high_res": 512,
-    "min_visible_levels": 16
+    "min_visible_levels": 16,
+    "enable_coarse_to_fine": False,
+    "level_warmup_start_epoch": 3,
+    "level_warmup_steps": 0
 } 
 
 # =======================================================================================
@@ -99,7 +107,7 @@ sh_parameters = {
 # =======================================================================================
 app_parameters = {
     "embeddings_num": 90,
-    "embeddings_dim": 12
+    "embeddings_dim": 16
 }
 
 # =======================================================================================
@@ -131,8 +139,8 @@ nerf_parameters = {
 res_model_parameters = {
     "embeddings_num": 90,
     "embeddings_dim": 6,
-    "lin_range": 0.25 / SCALE,            
-    "ang_range": 10 * (torch.pi / 180)    
+    "lin_range": 0.1 / SCALE,            
+    "ang_range": 0.5 * (torch.pi / 180)
 }
 
 # =======================================================================================
@@ -150,12 +158,19 @@ res_model_parameters = {
 # =======================================================================================
 training_parameters = {
     "training_batch": 32*32*4,
-    "epochs": 30,
+    "epochs": 15,
     "lr": 1e-4,
-    "res_lr": 1e-2,
+    "res_lr": 2e-3,
     "app_lr": 1e-4,
-    "emb_lr": 1e-3,
-    "start_cam_opt": 40,     
+    "emb_lr": 5e-4,    
+    # Pose refinement is opt-in; defaults preserve the original static-camera run.
+    "enable_camera_refinement": True,
+    "camera_warmup_epochs": 1,
+    "camera_update_interval": 2,
+    "camera_only": True,
+    "camera_pose_reg_weight": 1e-3,
+    "mixed_precision": True,
+    "distortion_loss_weight": 5e-4,
     "betas": (0.9, 0.999),
     "eps": 1e-8,
     
@@ -167,9 +182,9 @@ training_parameters = {
     "emb_norm_loss_weight": 1e-1,
     
     # --- TUNABLE BI-MODAL DRIVING LOSS PARAMETERS ---
-    "stop_tv_epoch": 30,                
+    "stop_tv_epoch": 10,
     "start_seg_epoch": 0,
-    "bce_dice_loss_weight": 1e1,        
+    "bce_dice_loss_weight": 5e0,
     "driving_loss_softness": 0,       
     "driving_loss_gamma": 1.2,          
     "driving_loss_w_bg": 4.0,           
@@ -178,7 +193,7 @@ training_parameters = {
     
     # Scheduling & Execution Flags
     "decay_rate": 0.99,
-    "decay_steps": 5,
+    "decay_steps": 3,
     "verbose": True,
     "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/geometry_shadow_decoupling/arch_4/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_nerf.pt",

@@ -1,0 +1,4 @@
+Experiment,Convergence_PSNR_Full,Convergence_PSNR_Object,Convergence_PSNR_Background,Convergence_MAE_Full,Convergence_MAE_Object,Convergence_MAE_Background,Convergence_SSIM_Full,Convergence_SSIM_Object,Convergence_SSIM_Background
+32 samples/ray,4.0,13.0,1.0,12.0,9.0,14.0,8.0,13.0,0.0
+64 samples/ray,3.0,12.0,1.0,3.0,1.0,13.0,3.0,7.0,0.0
+128 samples/ray,3.0,13.0,1.0,2.0,1.0,5.0,2.0,13.0,0.0

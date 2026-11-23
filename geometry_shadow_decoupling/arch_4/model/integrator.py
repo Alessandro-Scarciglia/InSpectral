@@ -44,6 +44,8 @@ class Integrator(nn.Module):
         self.near_depth = float(near_depth)
         self.far_depth = float(far_depth)
         self.device = torch.device(device)
+        self.last_weights = None
+        self.last_distortion_loss = torch.zeros((), device=self.device)
 
         if self.far_depth <= self.near_depth:
             raise ValueError(
@@ -63,7 +65,11 @@ class Integrator(nn.Module):
         # ==========================================================================
 
         device = raw.device
-        dtype = raw.dtype
+        # Integration is deliberately accumulated in fp32 even when the network
+        # runs under autocast.  This prevents underflow in transmittance and
+        # preserves stable depth/loss gradients.
+        dtype = torch.float32
+        raw = raw.float()
 
         if zvals.device != device or zvals.dtype != dtype:
             zvals = zvals.to(
@@ -160,6 +166,16 @@ class Integrator(nn.Module):
         # ==========================================================================
 
         weights = alpha * transmittance
+        self.last_weights = weights
+        # mip-NeRF style distortion/concentration penalty, evaluated in FP32.
+        pairwise = 2.0 * torch.sum(
+            weights * (zvals * torch.cumsum(weights, dim=-1) -
+                       torch.cumsum(weights * zvals, dim=-1)), dim=-1)
+        intervals = torch.cat(
+            [zvals[..., 1:] - zvals[..., :-1], torch.zeros_like(zvals[..., :1])],
+            dim=-1,
+        ).clamp_min(0)
+        self.last_distortion_loss = (pairwise + (weights.square() * intervals).sum(dim=-1) / 3.0).mean().clamp_min(0)
 
         # ==========================================================================
         # 7. ACCUMULATED OPACITY / OBJECT MASK

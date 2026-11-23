@@ -1,0 +1,4 @@
+Experiment,Convergence_PSNR_Full,Convergence_PSNR_Object,Convergence_PSNR_Background,Convergence_MAE_Full,Convergence_MAE_Object,Convergence_MAE_Background,Convergence_SSIM_Full,Convergence_SSIM_Object,Convergence_SSIM_Background
+BCE-Dice weight = 1e-1 (baseline),1.0,6.0,0.0,0.0,0.0,0.0,0.0,4.0,0.0
+BCE-Dice weight = 1e-3,1.0,8.0,0.0,0.0,0.0,0.0,0.0,3.0,0.0
+BCE-Dice weight = 1e1,2.0,6.0,0.0,0.0,0.0,0.0,1.0,6.0,0.0

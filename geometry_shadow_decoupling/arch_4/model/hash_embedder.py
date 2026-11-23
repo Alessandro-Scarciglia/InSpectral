@@ -42,6 +42,9 @@ class HashEmbedder(nn.Module):
             low_resolution: int = 16,
             high_resolution: int = 512,
             min_visible_levels: int = 4,  
+            level_warmup_steps: int = 0,
+            level_warmup_start_epoch: int = 0,
+            enable_coarse_to_fine: bool = False,
             device: str = 'cpu'
     ):
         super(HashEmbedder, self).__init__()
@@ -53,6 +56,9 @@ class HashEmbedder(nn.Module):
         self.n_feature_per_level = n_features_per_level
         self.log2_hashmap_size = log2_hashmap_size
         self.min_visible_levels = min_visible_levels  
+        self.level_warmup_steps = max(0, int(level_warmup_steps))
+        self.level_warmup_start_epoch = max(0, int(level_warmup_start_epoch))
+        self.enable_coarse_to_fine = bool(enable_coarse_to_fine)
         
         self.low_res = torch.tensor(low_resolution, device=self.device)
         self.high_res = torch.tensor(high_resolution, device=self.device)
@@ -162,7 +168,8 @@ class HashEmbedder(nn.Module):
             self,
             coords: torch.Tensor,
             current_step: int = None,
-            max_steps: int = None
+            max_steps: int = None,
+            steps_per_epoch: int = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Maps raw coordinates onto multi-scale grids with soft coarse-to-fine linear masking.
@@ -170,27 +177,22 @@ class HashEmbedder(nn.Module):
         coords = coords.to(self.device)
         coords_embedded_all = list()
 
-        # -------------------------------------------------------------------------------
-        # COARSE-TO-FINE COEFFICIENT CALCULATION
-        # -------------------------------------------------------------------------------
-        # weights = [1.0] * self.n_levels
-        
-        # if current_step is not None and max_steps is not None:
-        #     # Complete the training structure expansion phase at exactly 50% training steps
-        #     anneal_end_step = max_steps * 0.5
-            
-        #     # Identify the remaining resolution tiers to dynamically unlock
-        #     remaining_levels = self.n_levels - self.min_visible_levels
-            
-        #     alpha = min(1.0, current_step / anneal_end_step)
-        #     progress = self.min_visible_levels + (alpha * remaining_levels)
-            
-        #     for i in range(self.n_levels):
-        #         if i < self.min_visible_levels:
-        #             weights[i] = 1.0  
-        #         else:
-        #             # Ramps fine features smoothly between 0.0 and 1.0
-        #             weights[i] = max(0.0, min(1.0, progress - i))
+        # Smoothly expose one level at a time.  Multiplication (rather than
+        # indexing/skipping tables) keeps every parameter in the graph and avoids
+        # invalid sparse gradients when a level becomes active.
+        weights = torch.ones(self.n_levels, device=self.device, dtype=coords.dtype)
+        visible = min(self.n_levels, max(1, int(self.min_visible_levels)))
+        if self.enable_coarse_to_fine and current_step is not None and max_steps is not None and max_steps > 0:
+            warmup = self.level_warmup_steps or max(1, int(0.5 * max_steps))
+            start_step = self.level_warmup_start_epoch * steps_per_epoch if steps_per_epoch is not None else 0
+            elapsed_steps = max(0, current_step - start_step)
+            progress = (float(elapsed_steps) / float(warmup)) * (self.n_levels - visible)
+            for i in range(visible, self.n_levels):
+                weights[i] = torch.as_tensor(
+                    max(0.0, min(1.0, progress - (i - visible))),
+                    device=self.device,
+                    dtype=coords.dtype,
+                )
 
         # -------------------------------------------------------------------------------
         # INDEPENDENT GRID SCALE INTERPOLATION
@@ -208,9 +210,7 @@ class HashEmbedder(nn.Module):
                 coords, voxel_min, voxel_max, voxel_embedds
             )
             
-            # # Apply calculated structural fading windows
-            # if weights[i] < 1.0:
-            #     coords_embedded = coords_embedded * weights[i]
+            coords_embedded = coords_embedded * weights[i]
             
             coords_embedded_all.append(coords_embedded)
 

@@ -33,6 +33,12 @@ class NeuralRenderer(nn.Module):
                  hidden_dim_color: int, input_ch: int, input_ch_views: int,
                  out_ch: int, min_visible_levels: int, 
                  grid_resolution: int = 128, device: str = 'cpu',
+                 level_warmup_steps: int = 0,
+                 level_warmup_start_epoch: int = 0,
+                 enable_coarse_to_fine: bool = False,
+                 enable_hierarchical_sampling: bool = False,
+                 n_importance_samples: int = 0,
+                 importance_eps: float = 1e-5,
                  **kwargs):
         
         super(NeuralRenderer, self).__init__()
@@ -40,13 +46,19 @@ class NeuralRenderer(nn.Module):
         # Model hyperparameters and structural attributes
         self.device = torch.device(device)
         self.out_ch = out_ch  # Represents target image channels (e.g., 1 for IR, 3 for RGB)
+        self.enable_hierarchical_sampling = bool(enable_hierarchical_sampling)
+        self.n_importance_samples = max(0, int(n_importance_samples))
+        self.importance_eps = float(importance_eps)
         
         # Initialize rendering and sampling sub-components
         self.sampler = Sampler(n_samples=n_ray_samples, near=near, far=far, device=device)
         
         self.embedder = HashEmbedder(bbox=bbox, n_levels=n_levels, n_features_per_level=n_features_per_level,
                                      log2_hashmap_size=log2_hashmap_size, low_resolution=low_res,
-                                     high_resolution=high_res, device=device, min_visible_levels=min_visible_levels)
+                                     high_resolution=high_res, device=device, min_visible_levels=min_visible_levels,
+                                     level_warmup_steps=level_warmup_steps,
+                                     level_warmup_start_epoch=level_warmup_start_epoch,
+                                     enable_coarse_to_fine=enable_coarse_to_fine)
         
         self.sh_encoder = SHEncoder(input_dim=input_dim, degree=degree, device=device)
         self.app_embedder = AppearanceEmbedder(embeddings_num=embeddings_num, embeddings_dim=embeddings_dim, device=device)
@@ -76,7 +88,8 @@ class NeuralRenderer(nn.Module):
         app_idx = app_idx.to(torch.int32).to(self.device)
         app_emb = self.app_embedder(app_idx).squeeze(1) if self.app_embedder(app_idx).dim() == 3 else self.app_embedder(app_idx)
 
-        # Produce 3D point samples along each camera ray
+        # Produce coarse samples; optional PDF resampling is performed after the
+        # coarse pass using detached FP32 weights.
         samples, zvals = self.sampler(rays[..., :3], rays[..., 3:6])
         n_rays, n_samples, _ = samples.shape
 
@@ -90,7 +103,12 @@ class NeuralRenderer(nn.Module):
 
         # Flatten points array to interface smoothly with the spatial hash embedder
         flat_samples = samples.reshape(-1, 3)
-        enc_points, keep_mask = self.embedder(coords=flat_samples, current_step=current_step, max_steps=max_steps)
+        enc_points, keep_mask = self.embedder(
+            coords=flat_samples,
+            current_step=current_step,
+            max_steps=max_steps,
+            steps_per_epoch=len_dl,
+        )
         enc_points = enc_points * keep_mask.unsqueeze(-1).float()
 
         # -------------------------------------------------------------------------------
@@ -115,5 +133,20 @@ class NeuralRenderer(nn.Module):
         # 4. VOLUMETRIC INTEGRATION
         # -------------------------------------------------------------------------------
         chs_map, depth_map, sparsity_loss, mask = self.integrator(nerf_output, zvals, rays[..., 3:6])
+        if self.enable_hierarchical_sampling and self.n_importance_samples > 0:
+            fine_z = self.sampler.sample_pdf(
+                zvals, self.integrator.last_weights.detach(),
+                self.n_importance_samples, self.importance_eps)
+            zvals = torch.cat([zvals.float(), fine_z], dim=-1).sort(dim=-1).values
+            samples = rays[..., None, :3] + rays[..., None, 3:6] * zvals[..., :, None]
+            n_samples = zvals.shape[-1]
+            flat_samples = samples.reshape(-1, 3)
+            enc_points, keep_mask = self.embedder(flat_samples, current_step, max_steps, len_dl)
+            enc_points = enc_points * keep_mask.unsqueeze(-1).float()
+            enc_dirs_stretched = enc_dirs.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, enc_dirs.shape[-1])
+            app_emb_stretched = app_emb.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, app_emb.shape[-1])
+            output_flat = self.nerf(torch.cat([enc_points, enc_dirs_stretched, app_emb_stretched], dim=-1))
+            nerf_output = output_flat.reshape(n_rays, n_samples, total_network_out_ch)
+            chs_map, depth_map, sparsity_loss, mask = self.integrator(nerf_output, zvals, rays[..., 3:6])
         
         return chs_map, depth_map, sparsity_loss, mask

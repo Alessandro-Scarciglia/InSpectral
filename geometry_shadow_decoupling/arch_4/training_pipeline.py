@@ -148,7 +148,14 @@ def main(folder_name: str) -> None:
         gamma=training_parameters["driving_loss_gamma"],
         stop_tv_epoch=training_parameters["stop_tv_epoch"],
         start_seg_epoch=training_parameters["start_seg_epoch"],
-        driving_loss_weight=training_parameters["bce_dice_loss_weight"]
+        driving_loss_weight=training_parameters["bce_dice_loss_weight"],
+        enable_camera_refinement=training_parameters["enable_camera_refinement"],
+        camera_warmup_epochs=training_parameters["camera_warmup_epochs"],
+        camera_update_interval=training_parameters["camera_update_interval"],
+        camera_only=training_parameters["camera_only"],
+        camera_pose_reg_weight=training_parameters["camera_pose_reg_weight"],
+        mixed_precision=training_parameters["mixed_precision"],
+        distortion_loss_weight=training_parameters["distortion_loss_weight"]
     )
 
     max_steps = training_parameters["epochs"] * len(training_dataloader)
@@ -168,7 +175,12 @@ def main(folder_name: str) -> None:
             ray_batch = ray_batch.to(device, non_blocking=True)        
 
             # Apply camera pose optimization via residual deformation if enabled for this epoch
-            if epoch >= training_parameters["start_cam_opt"]:
+            camera_enabled = (
+                training_parameters["enable_camera_refinement"]
+                and epoch >= training_parameters["camera_warmup_epochs"]
+                and n_iter % max(1, training_parameters["camera_update_interval"]) == 0
+            )
+            if camera_enabled:
                 d_rays_o, d_rays_rot = res_model(ray_batch[:, -1])
                 orig = ray_batch[:, :3]      
                 dirs = ray_batch[:, 3:6]     
@@ -188,7 +200,7 @@ def main(folder_name: str) -> None:
                 epoch=epoch, n_iter=n_iter, max_steps=max_steps, dl_len=dl_len
             )
             
-            loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app = losses
+            loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app, loss_distortion = losses
             
             # Log metrics to Tensorboard
             writer.add_scalar("Train/Total_Loss", loss.item(), global_step)
@@ -197,6 +209,7 @@ def main(folder_name: str) -> None:
             writer.add_scalar("Train/Sparsity_Loss", loss_sparsity.item(), global_step)
             writer.add_scalar("Train/Driving_Loss", loss_driving.item(), global_step)
             writer.add_scalar("Train/Appearance_Loss", loss_app.item(), global_step)
+            writer.add_scalar("Train/Distortion_Loss", loss_distortion.item(), global_step)
             
             global_step += 1
                             
@@ -245,7 +258,7 @@ def main(folder_name: str) -> None:
                 test_rays = raygen(test_c2w).reshape(-1, 6)
                 
                 num_rays = test_rays.shape[0]
-                test_idx = torch.zeros((num_rays, 1), dtype=torch.float32, device=device)
+                test_idx = torch.ones((num_rays, 1), dtype=torch.float32, device=device) * (m_iter // 4)
 
                 # Build dynamic evaluation paths using the selected dictionary keys
                 img_path = os.path.join(dataset_parameters["test_path"], test_sample[path_key])
@@ -379,7 +392,7 @@ def main(folder_name: str) -> None:
                       f"Avg. SSIM: {metrics_summary['ssim']:.3f} | Obj SSIM: {metrics_summary['ssim_obj']:.3f}\n"
                       f"Avg. MAE:  {metrics_summary['mae']:.3f} | Obj MAE:  {metrics_summary['mae_obj']:.3f}\n")
 
-        trainer_agent.scheduler.step()
+    trainer_agent.scheduler.step()
 
 
 # =======================================================================================

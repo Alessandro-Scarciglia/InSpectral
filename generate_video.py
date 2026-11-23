@@ -13,10 +13,10 @@ import cv2
 # GLOBAL CONFIGURATION PARAMETERS
 # =======================================================================================
 CONFIG = {
-    "image_dir": "/home/vision/Desktop/Datasets/Landsat8/colour_256_radialboost_20_training",
-    "output_path": "depth_video.avi",
+    "image_dir": "/home/vision/Desktop/Datasets/Landsat8_v4/images/ir/",
+    "output_path": "ir_video.avi",
     "fps": 25,
-    "series": "_d",         # Dynamic suffix: "" for RGB, "_m" for mask, "_d" for depth
+    "series": "",         # Dynamic suffix: "" for RGB, "_m" for mask, "_d" for depth
     "extension": ".png"
 }
 

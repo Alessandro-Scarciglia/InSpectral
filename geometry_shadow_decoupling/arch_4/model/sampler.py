@@ -39,7 +39,8 @@ class Sampler(nn.Module):
     #@timing_decorator
     def forward(self,
                 rays_o: torch.Tensor,
-                rays_d: torch.Tensor):
+                rays_d: torch.Tensor,
+                perturb: bool = True):
         '''
         This function generate n_samples on a batch of rays which start from point rays_o (origins)
         and propagate toward rays_d (directions), within the rendering region [near, far].
@@ -50,6 +51,8 @@ class Sampler(nn.Module):
             it is the origin of the camera frame, namely where projection rays start.
         rays_d: torch.Tensor[float]
             it is the direction along which the rays run and enter the rendering volume.
+        perturb: bool
+            whether to jitter the uniformly spaced samples along each ray.
 
         Returns:
         -------
@@ -75,14 +78,38 @@ class Sampler(nn.Module):
         
         zvals = near * (1 - tvals) + far * tvals
 
-        # Add a perturbation to the uniformly spaced samples
-        mids = 0.5 * (zvals[..., 1:] + zvals[..., :-1])
-        upper = torch.cat([mids, zvals[..., -1:]], dim=-1)
-        lower = torch.cat([zvals[..., :1], mids], dim=-1)
-        randvals = torch.rand(zvals.shape, device=self.device)
-        zvals = lower + (upper - lower) * randvals
+        if perturb:
+            mids = 0.5 * (zvals[..., 1:] + zvals[..., :-1])
+            upper = torch.cat([mids, zvals[..., -1:]], dim=-1)
+            lower = torch.cat([zvals[..., :1], mids], dim=-1)
+            randvals = torch.rand(zvals.shape, device=self.device)
+            zvals = lower + (upper - lower) * randvals
         
         # Define 3D points along each ray
         pts = rays_o[..., None, :] + rays_d[..., None, :] * zvals[..., :, None]
 
         return pts, zvals
+
+    @staticmethod
+    def sample_pdf(zvals: torch.Tensor, weights: torch.Tensor, n_samples: int,
+                   eps: float = 1e-5) -> torch.Tensor:
+        """Stable inverse-CDF resampling from coarse volumetric weights."""
+        zvals = zvals.float()
+        weights = weights.float().clamp_min(0)
+        if zvals.shape[-1] < 2:
+            return zvals.expand(*zvals.shape[:-1], n_samples)
+        mids = 0.5 * (zvals[..., 1:] + zvals[..., :-1])
+        bins = torch.cat([zvals[..., :1], mids], dim=-1)
+        pdf = weights[..., :-1] + eps
+        pdf = pdf / pdf.sum(dim=-1, keepdim=True).clamp_min(eps)
+        cdf = torch.cat([torch.zeros_like(pdf[..., :1]), pdf.cumsum(dim=-1)], dim=-1)
+        cdf[..., -1] = 1.0
+        u = (torch.arange(n_samples, device=zvals.device, dtype=torch.float32) + 0.5) / n_samples
+        u = u.expand(*cdf.shape[:-1], n_samples)
+        inds = torch.searchsorted(cdf.contiguous(), u.contiguous(), right=True).clamp(1, cdf.shape[-1] - 1)
+        below, above = inds - 1, inds
+        cdf0, cdf1 = cdf.gather(-1, below), cdf.gather(-1, above)
+        bins0, bins1 = bins.gather(-1, below), bins.gather(-1, above)
+        denom = (cdf1 - cdf0).clamp_min(eps)
+        samples = bins0 + (u - cdf0) / denom * (bins1 - bins0)
+        return samples.detach()

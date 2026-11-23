@@ -217,11 +217,13 @@ class BCEDiceLoss(nn.Module):
         super(BCEDiceLoss, self).__init__()
         self.alpha = alpha
         self.beta = beta
-        self.bce = nn.BCEWithLogitsLoss()
+        # Renderer masks are already probabilities in [0, 1], not logits.
+        # Clamping only protects log(0) while retaining stable BCE gradients.
+        self.bce = nn.BCELoss()
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        bce_loss = self.bce(inputs, targets)
-        inputs = torch.sigmoid(inputs)
+        inputs = inputs.clamp(1e-6, 1.0 - 1e-6)
+        bce_loss = self.bce(inputs, targets.clamp(0.0, 1.0))
 
         inputs = inputs.view(-1)
         targets = targets.view(-1)

@@ -1,0 +1,4 @@
+Experiment,Convergence_PSNR_Full,Convergence_PSNR_Object,Convergence_PSNR_Background,Convergence_MAE_Full,Convergence_MAE_Object,Convergence_MAE_Background,Convergence_SSIM_Full,Convergence_SSIM_Object,Convergence_SSIM_Background
+w/o Masking,2.0,13.0,2.0,0.0,2.0,0.0,3.0,11.0,0.0
+w Masking (label),4.0,14.0,1.0,3.0,0.0,13.0,4.0,13.0,0.0
+w Masking (estimate),3.0,12.0,1.0,3.0,1.0,13.0,3.0,7.0,0.0

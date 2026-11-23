@@ -52,6 +52,7 @@ class NeRFSmall(nn.Module):
         color_net = list()
         for layer in range(self.n_layers_color):
             in_dim = (self.input_ch_views + self.geo_feat_dim + self.input_app_dim) if layer == 0 else self.hidden_dim_color
+            #in_dim = (self.input_ch_views + self.geo_feat_dim) if layer == 0 else self.hidden_dim_color
             out_dim = self.out_ch if layer == self.n_layers_color - 1 else self.hidden_dim_color
             color_net.append(nn.Linear(in_dim, out_dim, bias=False))
         return nn.ModuleList(color_net)
@@ -83,6 +84,7 @@ class NeRFSmall(nn.Module):
         
         # --- 2. COLOR BRANCH (RADIANCE) ---
         color = torch.cat([input_views, geo_features, input_app], dim=-1)
+        #color = torch.cat([input_views, geo_features], dim=-1)
         for layer_idx, layer in enumerate(self.color_net):
             color = layer(color)
 
