@@ -1,0 +1,11 @@
+# Normalise line endings so Windows checkouts don't show every file as modified.
+* text=auto
+
+# Binary files
+*.png binary
+*.jpg binary
+*.pdf binary
+*.mp4 binary
+*.npy binary
+*.pt binary
+*.xlsx binary

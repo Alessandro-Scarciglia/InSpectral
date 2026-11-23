@@ -28,7 +28,7 @@ Earth orbit is getting crowded. Besides active satellites there are thousands of
 - ✂️ **segment the object** from the space/Earth background directly from the learned volume density,
 - 🌗 **separate geometry from illumination**: the Sun moves, shadows sweep across the object, and per-image *appearance embeddings* absorb those lighting changes so the geometry stays consistent.
 
-That last point is the heart of the current architecture (`geometry_shadow_decoupling/`). In orbit the lighting is harsh and changes all the time: hard shadows, eclipses, glints. A vanilla NeRF would "bake" those effects into the geometry. InSpectral is built to keep them apart.
+That last point is the heart of the current architecture (geometry/shadow decoupling). In orbit the lighting is harsh and changes all the time: hard shadows, eclipses, glints. A vanilla NeRF would "bake" those effects into the geometry. InSpectral is built to keep them apart.
 
 > The model is **channel-agnostic** (`channels` in the config). The current pipeline is trained on RGB imagery, and the same architecture is designed to extend to other spectral bands (e.g. infrared). That is where the name *In‑Spectral* comes from.
 
@@ -63,7 +63,7 @@ flowchart LR
 | **NeRFSmall** | Small MLPs: a density branch (σ + geometric features) and a colour branch (geo features + view + appearance). | `model/small_nerf.py` |
 | **Integrator** | Volume rendering: alpha compositing gives colour, normalised depth and accumulated opacity (the object mask). Also computes an entropy-based sparsity loss. | `model/integrator.py` |
 | **Renderer** | Wraps everything above into one `nn.Module`. | `model/rendering.py` |
-| **Trainer** | AdamW + StepLR. Loss = photometric MSE + sparsity + total variation on the hash grid + BCE-Dice on the mask (+ optional smoothness between adjacent appearance embeddings). | `trainer.py`, `model/losses.py` |
+| **Trainer** | AdamW + StepLR. Loss = photometric MSE + sparsity + total variation on the hash grid + BCE-Dice on the mask (+ optional smoothness between adjacent appearance embeddings). | `training/trainer.py`, `model/losses.py` |
 
 **Evaluation metrics** (`model/metrics.py`): PSNR on colour and MAE on depth, each reported on the **full image**, on the **RSO only** and on the **background only** (using the ground-truth mask).
 
@@ -73,22 +73,33 @@ flowchart LR
 
 ```
 InSpectral/
-├── geometry_shadow_decoupling/
-│   └── arch_4/                         ← current architecture
-│       ├── config_parameters.py        ← ⚙️  ALL hyperparameters live here
-│       ├── training_pipeline.py        ← 🚀 training loop + per-epoch validation
-│       ├── trainer.py                  ← optimiser, scheduler, loss composition
-│       ├── performances.py             ← evaluate / visualise a trained checkpoint
-│       ├── results.py                  ← plot metric curves across runs
-│       ├── data/
-│       │   ├── generate_postprocessed_dataset.py  ← images → per-pixel ray dataset (.npy)
-│       │   ├── generate_random_camera_poses.py    ← random viewpoints on a sphere
-│       │   ├── rays_generator.py
-│       │   └── dataset.py
-│       └── model/                      ← sampler, encoders, NeRF, integrator, losses, metrics
-├── generate_video.py                   ← turn rendered frames into an .avi
+├── configs/
+│   └── config_parameters.py            ← ⚙️  ALL hyperparameters live here
+├── data/
+│   ├── generate_postprocessed_dataset.py  ← images → per-pixel ray dataset (.npy)
+│   ├── rays_generator.py
+│   └── dataset.py
+├── model/                              ← sampler, encoders, NeRF, integrator, losses, metrics
+├── training/
+│   ├── training_pipeline.py            ← 🚀 training loop + per-epoch validation
+│   └── trainer.py                      ← optimiser, scheduler, loss composition
+├── inference/
+│   └── inference.py                    ← render views from a trained checkpoint
+├── evaluation/
+│   ├── performances.py                 ← evaluate / visualise a trained checkpoint
+│   ├── results.py                      ← plot metric curves across runs
+│   ├── compare_results.py              ← compare TensorBoard runs (cases in comparison_cases.py)
+│   ├── evaluate_ns.py                  ← benchmark Nerfstudio baselines on the same data
+│   └── comparisons/                    ← saved comparison plots and metric tables
+├── tools/
+│   └── generate_video.py               ← turn rendered frames into an .avi
+├── assets/                             ← banner and promo video
 └── requirements.txt
 ```
+
+Generated at run time (gitignored): `data/postprocessed_dataset/`, `results/` (training runs), `renders/` (inference outputs) and `benchmarks/` (Nerfstudio baselines).
+
+> **Run everything from the repository root as a module** (`python -m training.training_pipeline`, not `python training/training_pipeline.py`). Imports are absolute from the root (`from model.rendering import ...`, `from configs.config_parameters import ...`), and data/result paths are relative to it.
 
 ---
 
@@ -105,11 +116,10 @@ cd InSpectral
 python3.12 -m venv inspectral_venv
 source inspectral_venv/bin/activate
 
-# core dependencies
-pip install torch numpy opencv-python matplotlib tqdm
+pip install -r requirements.txt
 ```
 
-> `requirements.txt` is a full environment freeze and includes some system (Ubuntu) packages. If `pip install -r requirements.txt` fails on your machine, the core install above is all the code needs.
+> `requirements.txt` lists the core dependencies plus the extras used by the evaluation scripts. `nerfstudio` is only needed for `evaluation/evaluate_ns.py` and is left commented out.
 
 ### 2. Prepare a dataset
 
@@ -150,12 +160,12 @@ To build it, edit the constants at the top of `data/generate_postprocessed_datas
 then run:
 
 ```bash
-python geometry_shadow_decoupling/arch_4/data/generate_postprocessed_dataset.py
+python -m data.generate_postprocessed_dataset
 ```
 
 ### 3. Set the hyperparameters ⚙️
 
-Everything is configured in **`geometry_shadow_decoupling/arch_4/config_parameters.py`**, grouped in dictionaries:
+Everything is configured in **`configs/config_parameters.py`**, grouped in dictionaries:
 
 | Dictionary | Key parameters |
 |---|---|
@@ -179,12 +189,12 @@ A few things to keep consistent:
 From the **repository root** (data and result paths are relative to it):
 
 ```bash
-python geometry_shadow_decoupling/arch_4/training_pipeline.py
+python -m training.training_pipeline
 ```
 
 What happens:
 
-1. A run folder is created: `geometry_shadow_decoupling/arch_4/results/folder_<YYYY-MM-DD_HH-MM-SS>/`.
+1. A run folder is created: `results/folder_<YYYY-MM-DD_HH-MM-SS>/`.
 2. The model is trained on shuffled ray batches. With `verbose: True`, every iteration logs the photometric, TV, sparsity, segmentation and appearance losses.
 3. **After each epoch** the model renders 15 validation views (one every 24 frames of the test orbit) and saves:
    ```
@@ -201,10 +211,12 @@ What happens:
 
 | Script | Purpose |
 |---|---|
-| `performances.py` | Loads a checkpoint, renders test views and shows them one at a time (`q` to quit). Set the checkpoint path at the top of the file. |
-| `results.py` | Plots depth MAE (RSO vs background) over epochs, comparing runs. |
-| `generate_video.py` | Turns a folder of rendered frames into an `.avi` fly-around. |
-| `data/generate_random_camera_poses.py` | Samples random camera poses on a sphere around the object, for free-viewpoint inference. |
+| `inference/inference.py` | Renders RGB and depth views from a trained checkpoint into `renders/` (set `checkpoint_path` at the top of the file). |
+| `evaluation/performances.py` | Loads a checkpoint, renders test views and shows them one at a time (`q` to quit). Set the checkpoint path at the top of the file. |
+| `evaluation/results.py` | Plots depth MAE (RSO vs background) over epochs, comparing runs. |
+| `evaluation/compare_results.py` | Compares several runs from their TensorBoard logs; the runs to compare are listed in `evaluation/comparison_cases.py` and outputs go to `evaluation/comparisons/`. |
+| `evaluation/evaluate_ns.py` | Evaluates a Nerfstudio baseline (e.g. Instant-NGP) with the same metrics. |
+| `tools/generate_video.py` | Turns a folder of rendered frames into an `.avi` fly-around. |
 
 ---
 

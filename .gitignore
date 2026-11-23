@@ -161,30 +161,18 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Other folders
+# Virtual environment
 inspectral_venv/
 
-# Folders from sub-project 0
-geometry_shadow_decoupling/arch_0/data/postprocessed_dataset
-geometry_shadow_decoupling/arch_0/results
+# Generated data and run outputs
+/data/postprocessed_dataset/
+/results/
+/renders/
+/benchmarks/
 
-# Folders from sub-project 1
-geometry_shadow_decoupling/arch_1/data/postprocessed_dataset
-geometry_shadow_decoupling/arch_1/results
-
-# Folders from sub-project 2
-geometry_shadow_decoupling/arch_2/data/postprocessed_dataset
-geometry_shadow_decoupling/arch_2/results
-
-# Folders from sub-project 3
-geometry_shadow_decoupling/arch_3/data/postprocessed_dataset
-geometry_shadow_decoupling/arch_3/results
-
-# Folders from sub-project 3
-geometry_shadow_decoupling/arch_4/data/postprocessed_dataset
-geometry_shadow_decoupling/arch_4/results
-
-# Other folders
+# Other generated folders
 content/
-geometry_shadow_decoupling/arch_4/inference/
-geometry_shadow_decoupling/arch_4/benchmarks/
+
+# Large media (keep locally, not in git)
+*.mp4
+*.avi
