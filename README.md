@@ -12,6 +12,16 @@
 <h1 align="center">InSpectral</h1>
 <p align="center"><b>See an unknown object in orbit from a handful of pictures, then rebuild its shape and appearance.</b></p>
 
+<p align="center">
+  <a href="#-why-inspectral">Why</a> ·
+  <a href="#-how-it-works">How it works</a> ·
+  <a href="#-repository-layout">Layout</a> ·
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-configuration-reference">Configuration</a> ·
+  <a href="#-evaluation-and-analysis">Evaluation</a> ·
+  <a href="#-roadmap">Roadmap</a>
+</p>
+
 ---
 
 ## 🛰️ Why InSpectral?
@@ -26,46 +36,82 @@ Earth orbit is getting crowded. Besides active satellites there are thousands of
 - 🎥 **render novel views** of the object from viewpoints that were never imaged,
 - 📏 **estimate dense depth**, i.e. the 3D shape of the object,
 - ✂️ **segment the object** from the space/Earth background directly from the learned volume density,
-- 🌗 **separate geometry from illumination**: the Sun moves, shadows sweep across the object, and per-image *appearance embeddings* absorb those lighting changes so the geometry stays consistent.
+- 🌗 **separate geometry from illumination**: the Sun moves, shadows sweep across the object, and per-image *appearance embeddings* absorb those lighting changes so the geometry stays consistent,
+- 🧭 **refine imperfect camera poses**: per-image pose corrections are learned jointly with the radiance field (BARF-style), because an inspector never knows its relative pose exactly.
 
-That last point is the heart of the current architecture (geometry/shadow decoupling). In orbit the lighting is harsh and changes all the time: hard shadows, eclipses, glints. A vanilla NeRF would "bake" those effects into the geometry. InSpectral is built to keep them apart.
+In orbit the lighting is harsh and changes all the time: hard shadows, eclipses, glints. A vanilla NeRF would "bake" those effects into the geometry. InSpectral is built to keep them apart.
 
-> The model is **channel-agnostic** (`channels` in the config). The current pipeline is trained on RGB imagery, and the same architecture is designed to extend to other spectral bands (e.g. infrared). That is where the name *In‑Spectral* comes from.
+> The model is **channel-agnostic**. Set `dataset_parameters["mode"]` to `"rgb"` (3 channels) or `"ir"` (1 channel, read from each frame's `ir_path`) and the whole pipeline (dataset, network output, metrics) follows. That is where the name *In‑Spectral* comes from.
 
 ---
 
 ## 🧠 How it works
 
+The pipeline has two stages. An **offline preprocessing** step turns a rendered orbit (images + poses + masks) into one big shuffled table of rays. The **training** step then fits a hash-grid NeRF to those rays, validating on full images after every epoch.
+
 ```mermaid
 flowchart LR
-    A["📷 Images + camera poses<br/>(transforms.json)"] --> B["Ray generator<br/>pinhole model → (o, d) per pixel"]
-    B --> C["Stratified sampler<br/>N points in [near, far]"]
-    C --> D["Multi-resolution<br/>hash encoding (xyz)"]
-    C --> E["Spherical-harmonics<br/>encoding (view dir)"]
-    F["Appearance embedding<br/>(one per image)"] --> H
-    D --> G["σ-MLP<br/>density + geo features"]
-    G --> H["Colour MLP"]
-    E --> H
-    G --> I["Volume integrator"]
-    H --> I
-    I --> J["RGB map"]
-    I --> K["Depth map"]
-    I --> L["Object mask"]
+    subgraph PRE["1 · Preprocessing (data/generate_postprocessed_dataset.py)"]
+        A["📷 Images + masks + poses<br/>(transforms_*.json)"] --> B["Subsample frames<br/>(every deg_res)"]
+        B --> C["Optional pose noise<br/>(Gauss-Markov radial + pointing)"]
+        C --> D["Normalise translations<br/>by max camera distance"]
+        D --> E["Ray generator<br/>(o, d) per pixel"]
+        E --> F[("rays .npy<br/>N × 11")]
+    end
+    subgraph TRAIN["2 · Training (training/training_pipeline.py)"]
+        F --> G["Pose residuals<br/>(ResEmbedder, optional)"]
+        G --> H["Centred stratified sampler<br/>‖o‖ − near … ‖o‖ + far"]
+        H --> I["Multi-resolution<br/>hash encoding (xyz)"]
+        H --> J["Spherical-harmonics<br/>encoding (view dir)"]
+        K["Appearance embedding<br/>(one per image)"] --> M
+        I --> L["σ-MLP<br/>density + geo features"]
+        L --> M["Colour MLP"]
+        J --> M
+        L --> N["Volume integrator"]
+        M --> N
+        N --> O["Colour map"]
+        N --> P["Depth map"]
+        N --> Q["Opacity = object mask"]
+    end
 ```
+
+### Model components
 
 | Stage | What it does | File |
 |---|---|---|
-| **Rays** | Builds one ray (origin + direction) per pixel from the camera-to-world pose and a pinhole intrinsic matrix computed from the FOV. | `data/rays_generator.py` |
-| **Sampler** | Stratified, jittered samples along each ray between `near` and `far`. | `model/sampler.py` |
-| **Hash embedder** | Instant-NGP-style multi-resolution hash grid (16 levels, 2¹⁹ entries) inside a bounding box around the RSO. Samples outside the box get zero density. | `model/hash_embedder.py` |
-| **SH encoder** | Encodes the viewing direction in spherical harmonics (degree 4), for view-dependent effects like specular reflections. | `model/sh_encoder.py` |
-| **Appearance embedder** | A learnable vector per training image that captures the illumination/shadow conditions of that shot. | `model/appearance_embedder.py` |
-| **NeRFSmall** | Small MLPs: a density branch (σ + geometric features) and a colour branch (geo features + view + appearance). | `model/small_nerf.py` |
-| **Integrator** | Volume rendering: alpha compositing gives colour, normalised depth and accumulated opacity (the object mask). Also computes an entropy-based sparsity loss. | `model/integrator.py` |
-| **Renderer** | Wraps everything above into one `nn.Module`. | `model/rendering.py` |
-| **Trainer** | AdamW + StepLR. Loss = photometric MSE + sparsity + total variation on the hash grid + BCE-Dice on the mask (+ optional smoothness between adjacent appearance embeddings). | `training/trainer.py`, `model/losses.py` |
+| **Ray generator** | Pinhole camera with intrinsics from the horizontal FOV (`camera_angle_x`). Produces one unit-length ray per pixel in the NeRF/OpenGL convention (x right, y up, camera looking down −z), rotated by the camera-to-world pose. | `data/rays_generator.py` |
+| **Sampler** | Stratified, jittered samples along each ray. Sampling is **world-centred**: each ray is sampled between `‖o‖ − near` and `‖o‖ + far`, i.e. a shell of fixed thickness around the origin where the RSO sits. Optional **hierarchical (importance) sampling** adds `n_importance_samples` points drawn from the coarse weights. | `model/sampler.py` |
+| **Hash embedder** | Instant-NGP-style multi-resolution hash grid: 16 levels, 2 features per level, 2¹⁹ entries per level, resolutions from 16 to 512 inside the bounding box `[-SCENE, SCENE]³`. Samples outside the box are zeroed. Optional **coarse-to-fine** schedule that fades in the finer levels during training. | `model/hash_embedder.py` |
+| **SH encoder** | Encodes the viewing direction in real spherical harmonics (degree 1–5, default 4 → 16 coefficients) for view-dependent effects such as specular glints. | `model/sh_encoder.py` |
+| **Appearance embedder** | One learnable vector per training image (default 90 × 16). It captures the illumination and shadow state of that shot so the geometry does not have to. | `model/appearance_embedder.py` |
+| **NeRFSmall** | Two small bias-free MLPs. The density branch maps the hash features to raw σ plus `geo_feat_dim` (16) geometric features; the colour branch maps geo features + SH + appearance to colour (sigmoid). | `model/small_nerf.py` |
+| **Integrator** | Alpha compositing in FP32. Returns the colour map, a **normalised inverse depth** (near → 1, far → 0, background forced to 0, matching the ground-truth depth PNGs), the **accumulated opacity** used as the object mask, an **entropy sparsity** term, and a mip-NeRF-360-style **distortion** term. | `model/integrator.py` |
+| **NeuralRenderer** | Wraps sampler, encoders, NeRF and integrator into one `nn.Module`. | `model/rendering.py` |
+| **Pose residuals** | `ResEmbedder` stores a 6-D correction per image (3 translation + 3 rotation as an axis-angle vector), initialised to zero, clamped to ±5 and scaled by `lin_range` (translation) and `ang_range` (rotation). It is turned into Δt and ΔR (Rodrigues) and applied to the ray origins and directions before rendering. | `model/residuals_embedder.py` |
 
-**Evaluation metrics** (`model/metrics.py`): PSNR on colour and MAE on depth, each reported on the **full image**, on the **RSO only** and on the **background only** (using the ground-truth mask).
+### Training objective
+
+`training/trainer.py` optimises everything with **AdamW** using four parameter groups with separate learning rates (NeRF MLPs `lr`, hash grid `emb_lr`, appearance table `app_lr`, pose table `res_lr`) and a **StepLR** scheduler. Mixed precision (FP16 autocast + GradScaler) is available on CUDA.
+
+| Term | Definition | Weight key | Active |
+|---|---|---|---|
+| Photometric | MSE between rendered and ground-truth colour | `photometric_loss_weight` | always |
+| Sparsity | Shannon entropy of the per-ray sample weights | `sparsity_loss_weight` | always |
+| Appearance smoothness | Squared second difference between consecutive appearance embeddings (frames are consecutive along the orbit) | `similarity_loss_weight` | always |
+| Distortion | mip-NeRF 360 distortion loss on the sample weights | `distortion_loss_weight` | always (if > 0) |
+| Total variation | L1 TV on a random cube of every hash-grid level | `tv_loss_weight` | until `stop_tv_epoch` |
+| Segmentation | 0.5 · BCE + 0.5 · Dice between the accumulated opacity and the (pseudo-)mask | `bce_dice_loss_weight` | from `start_seg_epoch` |
+| Pose regularisation | Mean squared pose-residual embedding | `camera_pose_reg_weight` | only on pose-update steps |
+
+Terms outside their active window are still computed without gradient so they keep appearing in TensorBoard.
+
+**Camera refinement.** With `enable_camera_refinement = True`, pose residuals are applied on every `camera_update_interval`-th batch once `camera_warmup_epochs` have passed. With `camera_only = True` those batches update **only** the pose table (the NeRF is frozen for that step), which alternates geometry and pose updates.
+
+### Data conventions
+
+- **Scene normalisation.** Camera translations are divided by the largest camera distance from the origin, so every camera lies within the unit sphere. The preprocessing script writes the min/max distances into the `.npy` filename (`…_min22.88_max40.72_…`), and the training validation loop parses them back to normalise the test poses the same way. `near`, `far` and `SCENE` are expressed in these normalised units.
+- **Depth ground truth.** 8-bit PNGs where 255 is the camera origin and 0 is the far limit (≈ 40 m in the Landsat dataset). The renderer outputs the same convention.
+- **Colour order.** Images are read with OpenCV, so the model learns **BGR**. Saved renders are BGR PNGs (correct when re-read by OpenCV). TensorBoard images and the 3-D plot are converted to RGB.
 
 ---
 
@@ -74,162 +120,240 @@ flowchart LR
 ```
 InSpectral/
 ├── configs/
-│   └── config_parameters.py            ← ⚙️  ALL hyperparameters live here
+│   └── config_parameters.py            ⚙️  all model / training hyperparameters
 ├── data/
-│   ├── generate_postprocessed_dataset.py  ← images → per-pixel ray dataset (.npy)
-│   ├── rays_generator.py
-│   └── dataset.py
-├── model/                              ← sampler, encoders, NeRF, integrator, losses, metrics
+│   ├── generate_postprocessed_dataset.py  images + poses → shuffled ray table (.npy)
+│   ├── rays_generator.py               pinhole ray generator (RaysGeneratorSynth)
+│   └── dataset.py                      torch Dataset over the .npy (NeRFData)
+├── model/
+│   ├── rendering.py                    NeuralRenderer: the full forward pass
+│   ├── sampler.py                      stratified + importance sampling
+│   ├── hash_embedder.py                multi-resolution hash grid
+│   ├── sh_encoder.py                   spherical-harmonics direction encoding
+│   ├── appearance_embedder.py          per-image appearance codes
+│   ├── residuals_embedder.py           per-image pose corrections
+│   ├── small_nerf.py                   density + colour MLPs
+│   ├── integrator.py                   volume rendering, depth, opacity, regularisers
+│   ├── losses.py                       TV, BCE-Dice and other losses
+│   ├── metrics.py                      PSNR / MAE / SSIM (full, object, background)
+│   └── occupancy_grid.py               occupancy grid for empty-space skipping (not wired in yet)
 ├── training/
-│   ├── training_pipeline.py            ← 🚀 training loop + per-epoch validation
-│   └── trainer.py                      ← optimiser, scheduler, loss composition
+│   ├── training_pipeline.py            🚀 entry point: training loop + per-epoch validation
+│   └── trainer.py                      optimiser, scheduler, loss composition
 ├── inference/
-│   └── inference.py                    ← render views from a trained checkpoint
+│   └── inference.py                    render camera / appearance sweeps from a checkpoint
 ├── evaluation/
-│   ├── performances.py                 ← evaluate / visualise a trained checkpoint
-│   ├── results.py                      ← plot metric curves across runs
-│   ├── compare_results.py              ← compare TensorBoard runs (cases in comparison_cases.py)
-│   ├── evaluate_ns.py                  ← benchmark Nerfstudio baselines on the same data
-│   └── comparisons/                    ← saved comparison plots and metric tables
+│   ├── performances.py                 evaluate one checkpoint on test views
+│   ├── results.py                      plot depth MAE over epochs for two runs
+│   ├── compare_results.py              compare many runs from their TensorBoard logs
+│   ├── comparison_cases.py             which runs compare_results.py should compare
+│   ├── evaluate_ns.py                  score a Nerfstudio baseline with the same metrics
+│   └── comparisons/                    saved comparison figures and tables
 ├── tools/
-│   └── generate_video.py               ← turn rendered frames into an .avi
-├── assets/                             ← banner and promo video
+│   └── generate_video.py               turn a folder of frames into an .avi
+├── assets/                             banner and promo video
 └── requirements.txt
 ```
 
-Generated at run time (gitignored): `data/postprocessed_dataset/`, `results/` (training runs), `renders/` (inference outputs) and `benchmarks/` (Nerfstudio baselines).
+Folders created at run time (all gitignored):
 
-> **Run everything from the repository root as a module** (`python -m training.training_pipeline`, not `python training/training_pipeline.py`). Imports are absolute from the root (`from model.rendering import ...`, `from configs.config_parameters import ...`), and data/result paths are relative to it.
+| Folder | Created by | Contents |
+|---|---|---|
+| `data/postprocessed_dataset/` | `generate_postprocessed_dataset.py` | ray tables `.npy` + trajectory plots |
+| `results/folder_<timestamp>/` | `training_pipeline.py` | TensorBoard events and one `epoch_<k>/` per epoch |
+| `renders/<timestamp>/` | `inference.py` | rendered views, depth maps, 3-D sample plots |
+| `benchmarks/` | Nerfstudio | baseline runs scored by `evaluate_ns.py` |
+
+> **Always run from the repository root, as a module** (`python -m training.training_pipeline`, not `python training/training_pipeline.py`). Imports are absolute from the root (`from model.rendering import …`, `from configs.config_parameters import …`) and relative paths in the configs are resolved from there.
 
 ---
 
-## 🚀 Getting started
+## 🚀 Quick start
 
 ### 1. Environment
 
-You need **Python 3.12** (the code uses 3.12 f-string syntax) and an **NVIDIA GPU with CUDA**.
+You need **Python 3.12** and an **NVIDIA GPU with CUDA 12.x**.
 
 ```bash
 git clone https://github.com/Alessandro-Scarciglia/InSpectral.git
 cd InSpectral
 
-python3.12 -m venv inspectral_venv
-source inspectral_venv/bin/activate
+python3.12 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
 ```
 
-> `requirements.txt` lists the core dependencies plus the extras used by the evaluation scripts. `nerfstudio` is only needed for `evaluation/evaluate_ns.py` and is left commented out.
+`requirements.txt` lists the core dependencies plus the ones used by the evaluation scripts (`pandas`, `tensorboard`, `torchmetrics`). `nerfstudio` is only needed for `evaluation/evaluate_ns.py` and is commented out.
 
-### 2. Prepare a dataset
+### 2. Prepare the source dataset
 
-InSpectral expects a NeRF/Blender-style synthetic dataset: a folder of renders and a `transforms.json`:
+InSpectral expects a NeRF/Blender-style synthetic orbit:
+
+```
+<dataset>/
+├── transforms_train.json     nominal (ground-truth) poses, used for training
+├── transforms_test.json      optional; validation falls back to transforms_train.json
+├── transforms_est.json       optional; estimated poses (trajectory_type = "estimated")
+└── images/…                  RGB / IR / depth / mask PNGs referenced by the JSON
+```
 
 ```jsonc
 {
-  "camera_angle_x": 0.69,          // horizontal FOV [rad]
-  "resolution": 512,
+  "camera_angle_x": 0.69,            // horizontal FOV [rad]
   "num_ch": 3,
   "frames": [
     {
-      "file_path":  "rgb/000.png",     // image
-      "depth_path": "depth/000.png",   // depth, 8-bit, normalised over [near, far]
-      "mask_path":  "mask/000.png",    // binary RSO mask
-      "transform_matrix": [[...], [...], [...], [...]]   // 4×4 camera-to-world
+      "file_path":  "images/rgb/000.png",    // RGB image (mode "rgb")
+      "ir_path":    "images/ir/000.png",     // IR image (mode "ir")
+      "depth_path": "images/depth/000.png",  // 8-bit depth, 255 = camera, 0 = far
+      "mask_path":  "images/mask/000.png",   // binary RSO mask
+      "transform_matrix": [[...], [...], [...], [...]]  // 4×4 camera-to-world
     }
   ]
 }
 ```
 
-Training does not read images directly. It reads a **pre-computed, shuffled ray dataset**, where each row is one pixel:
+Frames are assumed to be **consecutive along the orbit** (the appearance-smoothness loss and the validation indexing rely on it).
 
-```
-[ ray_origin(3) | ray_direction(3) | RGB(3) | mask(1) | image_index(1) ]   → 11 floats
-```
+### 3. Build the ray dataset
 
-To build it, edit the constants at the top of `data/generate_postprocessed_dataset.py`:
+Edit `CONFIG` at the top of `data/generate_postprocessed_dataset.py`:
 
-| Constant | Meaning |
+| Key | Meaning |
 |---|---|
-| `SRC_DATASET` / `DATA_PATH` | Source dataset folder name and path |
-| `DEG_RES` | Keep one frame every `DEG_RES` (e.g. 4 on a 360-frame orbit → 90 frames) |
-| `MASKED` | `"masked"` blacks out the background using the mask |
-| `NOISE_STD` | Std of Gaussian noise added to camera positions, to test robustness to pose errors |
-| `DATA_DST` | Output `.npy` path |
+| `data_path` | Source dataset folder |
+| `data_dst_dir` | Output folder for the `.npy` (normally `data/postprocessed_dataset/`) |
+| `src_dataset`, `arch` | Tags written into the output filename |
+| `target_resolution` | Image side in pixels (must match `cfg_parameters["resolution"]`) |
+| `deg_res` | Keep one frame every `deg_res` (e.g. 4 on a 360-frame orbit → 90 frames) |
+| `image_type` | `"rgb"` or `"ir"` |
+| `masked` | Folder (inside `data_path`) with the masks used for training, e.g. SAM2 pseudo-masks. The image background is blacked out with this mask, and the mask itself becomes the segmentation target. |
+| `trajectory_type` | `"nominal"` (`transforms_train.json`) or `"estimated"` (`transforms_est.json`) |
+| `enable_trajectory_noise`, `radial_noise_sigma`, `radial_noise_rho` | Time-correlated (first-order Gauss-Markov) **radial** position error, as a fraction of the distance. Nominal trajectories only. |
+| `enable_pointing_noise`, `pointing_noise_sigma_deg`, `pointing_noise_rho` | Time-correlated **pointing** error around the camera's local x and y axes. Nominal trajectories only. |
+| `noise_seed` | Seed for the noise and the final shuffle |
 
-then run:
+Then run:
 
 ```bash
 python -m data.generate_postprocessed_dataset
 ```
 
-### 3. Set the hyperparameters ⚙️
+The output is a float32 array with one row per pixel, already shuffled:
 
-Everything is configured in **`configs/config_parameters.py`**, grouped in dictionaries:
+```
+[ ray_origin(3) | ray_direction(3) | colour(C) | mask(1) | image_index(1) ]   C = 3 (rgb) or 1 (ir)
+```
 
-| Dictionary | Key parameters |
-|---|---|
-| `dataset_parameters` | `data_path` (the `.npy` from step 2), `test_path` (dataset folder used for validation) |
-| `cfg_parameters` | `resolution`, `channels`, `device` (e.g. `"cuda:0"`) |
-| `sampler_parameters` | `n_ray_samples`, `near`, `far` (scaled by `SCALE`) |
-| `hash_parameters` | `bbox` (the rendering volume around the RSO), `n_levels`, `log2_hashmap_size`, `low_res`, `high_res` |
-| `sh_parameters` | `degree` of the view-direction encoding |
-| `app_parameters` | `embeddings_num` (**≥ number of training frames**), `embeddings_dim` |
-| `nerf_parameters` | depth and width of the density and colour MLPs |
-| `training_parameters` | `training_batch` (rays per batch), `epochs`, `lr`, LR decay, loss weights (`tv_loss_weight`, `sparsity_loss_weight`, `bce_dice_loss_weight`, `similarity_loss_weight`), loss schedules (`stop_tv_epoch`, `start_seg_epoch`), resuming (`pretrained`, `checkpoint`) |
+Its filename encodes the settings, for example
+`Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min22.88_max40.72_rgb_radial0.030_rhor0.90_point0.200_rhop0.90.npy`.
+A trajectory plot (nominal vs perturbed, with camera frames) is saved next to it.
 
-A few things to keep consistent:
+### 4. Configure training
 
-- **`embeddings_num` must match your dataset.** Each training image gets its own appearance vector, indexed by `image_index`. With 360 frames and `DEG_RES = 4` you need at least 90.
-- **Scene scale.** The scene is normalised by `SCALE = 8.0`: camera translations are divided by 8 when generating rays (in both the dataset script and the validation loop), and `near`, `far` and `bbox` are expressed in the same scaled units. If you change the scale, change it everywhere.
-- **Resolution.** `cfg_parameters["resolution"]` should match the resolution used to build the `.npy` dataset.
+Point `dataset_parameters["data_path"]` at the `.npy` from step 3 and `dataset_parameters["test_path"]` at the source dataset folder, then review the parameters in [Configuration reference](#-configuration-reference). The values that **must** stay consistent with the data:
 
-### 4. Launch the training loop 🚀
+- `app_parameters["embeddings_num"]` and `res_model_parameters["embeddings_num"]` ≥ number of training frames (90 for 360 frames with `deg_res = 4`).
+- `cfg_parameters["resolution"]` equal to `target_resolution` used to build the `.npy`.
+- Keep the `min…_max…` part of the `.npy` filename: validation uses it to normalise the test poses.
 
-From the **repository root** (data and result paths are relative to it):
+### 5. Train
 
 ```bash
 python -m training.training_pipeline
 ```
 
-What happens:
-
-1. A run folder is created: `results/folder_<YYYY-MM-DD_HH-MM-SS>/`.
-2. The model is trained on shuffled ray batches. With `verbose: True`, every iteration logs the photometric, TV, sparsity, segmentation and appearance losses.
-3. **After each epoch** the model renders 15 validation views (one every 24 frames of the test orbit) and saves:
+1. A run folder `results/folder_<YYYY-MM-DD_HH-MM-SS>/` is created and TensorBoard logging starts there.
+2. Every batch of `training_batch` rays is optionally corrected by the pose residuals and passed to the trainer. With `verbose: True`, losses are printed every 10 iterations.
+3. **After each epoch** the model renders every 10th frame of the test trajectory and computes PSNR, SSIM (colour) and MAE (depth), each on the full image, on the RSO and on the background (using the ground-truth mask). It saves:
    ```
    epoch_<k>/
-   ├── rgb/      ← rendered images
-   ├── depth/    ← rendered depth maps
-   └── chkpt.pt  ← model + optimiser state + PSNR/MAE (full / RSO / background)
+   ├── rgb/<frame>.png      rendered colour
+   ├── depth/<frame>.png    rendered depth
+   ├── chkpt_nerf.pt        NeRF state + metrics
+   └── chkpt_res.pt         pose-residual state + metrics
    ```
-4. The learning-rate scheduler steps and training continues.
 
-**Resuming:** set `training_parameters["pretrained"] = True` and point `training_parameters["checkpoint"]` to a `chkpt.pt`.
+Follow the run with:
 
-### 5. Inspect the results 🔍
+```bash
+tensorboard --logdir results
+```
 
-| Script | Purpose |
+Logged tags: `Train/{Total,Photometric,TV,Sparsity,Driving,Appearance,Distortion}_Loss` and `Val/{Full,Object,Background}_{PSNR,MAE,SSIM}`, plus validation images.
+
+**Resuming:** set `training_parameters["pretrained"] = True` and point `checkpoint_nerf` / `checkpoint_res` to the two checkpoint files.
+
+### 6. Render novel views
+
+Edit `INFERENCE_CONFIG` at the top of `inference/inference.py`, then:
+
+```bash
+python -m inference.inference
+```
+
+| Key | Meaning |
 |---|---|
-| `inference/inference.py` | Renders RGB and depth views from a trained checkpoint into `renders/` (set `checkpoint_path` at the top of the file). |
-| `evaluation/performances.py` | Loads a checkpoint, renders test views and shows them one at a time (`q` to quit). Set the checkpoint path at the top of the file. |
-| `evaluation/results.py` | Plots depth MAE (RSO vs background) over epochs, comparing runs. |
-| `evaluation/compare_results.py` | Compares several runs from their TensorBoard logs; the runs to compare are listed in `evaluation/comparison_cases.py` and outputs go to `evaluation/comparisons/`. |
-| `evaluation/evaluate_ns.py` | Evaluates a Nerfstudio baseline (e.g. Instant-NGP) with the same metrics. |
-| `tools/generate_video.py` | Turns a folder of rendered frames into an `.avi` fly-around. |
+| `checkpoint_path` | `chkpt_nerf.pt` to load |
+| `mode` | `"camera"`: move the camera with a fixed appearance · `"appearance"`: keep one camera and sweep the appearance embeddings (shows how lighting/shadows were absorbed) |
+| `camera_source` | `"trajectory"` (all poses of the dataset) or `"sphere"` (`views` poses on a Fibonacci sphere of radius `sphere_radius`) |
+| `appearance_position` | Embedding index to use in camera mode; fractional values interpolate between neighbours |
+| `camera_index`, `appearance_start`, `appearance_end`, `appearance_steps` | Appearance sweep settings |
+| `normalization_stride` | Must equal `deg_res` used for the training dataset |
+| `visualize_3d`, `visualize_3d_index`, `pixel_stride`, `sigma_threshold`, `show_3d` | Save (and show) a 3-D scatter of the samples with σ above the threshold for one view, plus the raw samples as `.npz` |
+
+Outputs go to `renders/<timestamp>/`: `view_XXXX.png`, `view_XXXX_depth.png` (or `appearance_…`), and optionally `…_3d.png` / `…_samples.npz`.
 
 ---
 
-## 🚧 Work in progress: camera pose correction
+## ⚙️ Configuration reference
 
-The `main` branch assumes the **camera poses are known accurately**. In a real inspection mission they are not. Poses come from the inspector's relative navigation and are affected by **noise and drift**, and NeRF is very sensitive to pose errors: wrong poses blur the geometry and create floaters.
+All training hyperparameters live in `configs/config_parameters.py`, grouped in dictionaries. Defaults shown are the current values in the file.
 
-This is the next big step of the project, and it is **under active development**:
+| Dictionary | Key parameters |
+|---|---|
+| `dataset_parameters` | `data_path` (ray `.npy`), `test_path` (source dataset folder for validation), `mode` (`"rgb"` / `"ir"`) |
+| `cfg_parameters` | `resolution` (512), `channels` (derived from `mode`), `device` |
+| `rays_parameters` | derived from `cfg_parameters`, no need to edit |
+| `sampler_parameters` | `n_ray_samples` (64), `near` / `far` (0.4 / 0.4: half-thickness of the sampled shell in front of and behind the origin), `enable_hierarchical_sampling`, `n_importance_samples`, `importance_eps` |
+| `hash_parameters` | `bbox` (`±SCENE`, SCENE = 0.25), `n_levels`, `n_features_per_level`, `log2_hashmap_size`, `low_res`, `high_res`, coarse-to-fine: `enable_coarse_to_fine`, `min_visible_levels`, `level_warmup_start_epoch`, `level_warmup_steps` |
+| `sh_parameters` | `degree` (4) |
+| `app_parameters` | `embeddings_num` (≥ training frames), `embeddings_dim` (16) |
+| `nerf_parameters` | `n_layers`, `hidden_dim`, `geo_feat_dim`, `n_layers_color`, `hidden_dim_color`; input/output sizes are derived |
+| `res_model_parameters` | `embeddings_num`, `lin_range` (translation step per unit of embedding, normalised units), `ang_range` (rotation step per unit of embedding, rad); the embedding is clamped to ±5, so the largest correction is 5 × the range |
+| `training_parameters` | batch & schedule: `training_batch` (4096 rays), `epochs`, `lr`, `emb_lr`, `app_lr`, `res_lr`, `betas`, `eps`, `decay_rate`, `decay_steps`, `mixed_precision` · loss weights: see [Training objective](#training-objective) · loss windows: `stop_tv_epoch`, `start_seg_epoch` · camera refinement: `enable_camera_refinement`, `camera_warmup_epochs`, `camera_update_interval`, `camera_only` · resuming: `pretrained`, `checkpoint_nerf`, `checkpoint_res` |
 
-- `NOISE_STD` in the dataset script already lets you corrupt the training poses and measure how much reconstruction quality degrades.
-- The **`uncalibrated`** branch adds **joint optimisation of per-image pose corrections** together with the radiance field, plus world-centric sampling and a reworked integrator and evaluation pipeline. Early experiments recover slowly drifting pose errors. Making it robust to random frame-to-frame noise is still in progress.
+> A few keys are kept for experiments but are **not read by the current code**: `emb_norm_loss_weight`, `driving_loss_w_bg`, `driving_loss_w_fg`, `driving_loss_dice_weight`, and `driving_loss_softness` / `driving_loss_gamma` (passed to the trainer but only used by the alternative `TunableBimodalDrivingLoss`, which is commented out in favour of BCE-Dice).
 
-Expect the APIs in this area to change while that work is merged.
+---
+
+## 📊 Evaluation and analysis
+
+Every script is configured by a dictionary at the top of the file and run from the repository root.
+
+| Command | Purpose |
+|---|---|
+| `python -m evaluation.performances` | Loads one `chkpt_nerf.pt`, renders every `test_stride`-th frame and prints PSNR (colour) and MAE (depth) for full / object / background. Set `interactive_display` to step through the frames (`q` to quit). |
+| `python -m evaluation.results` | Plots depth MAE (RSO vs background) over epochs for two runs, e.g. with and without segmentation. |
+| `python -m evaluation.compare_results [--list] [--case NAME]` | Reads the TensorBoard logs of the runs listed in `evaluation/comparison_cases.py` and writes paper-ready figures (PDF + PNG) and tables (CSV + `comparison_statistics.xlsx`) to the case's output folder: metric vs epoch, object metrics, object-background gaps, relative improvement, training losses, final / best / AUC / convergence statistics. |
+| `python -m evaluation.evaluate_ns` | Scores a Nerfstudio baseline (e.g. Instant-NGP) on the same images with the same depth convention, and writes a `metrics.json`. Requires `nerfstudio`. |
+| `python -m tools.generate_video` | Turns a folder of numbered frames (`000.png`, or `000_d.png` etc. via `series`) into an `.avi`. |
+
+To add a comparison, add an entry to `COMPARISON_CASES`:
+
+```python
+"my_case": {
+    "description": "What this comparison tests.",
+    "experiments": [
+        {"name": "Baseline", "folder": "results/folder_2026-11-05_18-24-13"},
+        {"name": "With X",   "folder": "results/folder_2026-11-06_10-11-48"},
+    ],
+    "output": COMPARISON_ROOT / "my_case",
+},
+```
+
+The `evaluation/comparisons/` folder already holds the studies run so far (appearance embedding capacity and similarity, dataset version robustness, photometric / segmentation / sparsity / TV weight sweeps, ray sampling trade-off, pose uncertainty, sampling, segmentation).
 
 ---
 
@@ -237,10 +361,12 @@ Expect the APIs in this area to change while that work is merged.
 
 - [x] Hash-grid NeRF with SH view encoding for RSO reconstruction
 - [x] Geometry/illumination decoupling with per-image appearance embeddings
-- [x] Density-based RSO segmentation (BCE-Dice on accumulated opacity)
-- [x] Object-vs-background evaluation of PSNR and depth MAE
-- [ ] Robust camera pose correction (drift ✔ early results, white noise in progress)
-- [ ] Multispectral / infrared inputs
+- [x] Density-based RSO segmentation (BCE-Dice on accumulated opacity, trained on SAM2 pseudo-masks)
+- [x] Object-vs-background evaluation of PSNR, SSIM and depth MAE
+- [x] Pose-noise simulation (time-correlated radial and pointing errors) in the dataset builder
+- [ ] Robust joint camera-pose refinement (implemented and opt-in; drift ✔ early results, white noise in progress)
+- [ ] Multispectral / infrared inputs (single-channel IR mode already wired through the pipeline)
+- [ ] Occupancy-grid empty-space skipping
 - [ ] Mesh / point-cloud export for downstream characterisation
 
 ---

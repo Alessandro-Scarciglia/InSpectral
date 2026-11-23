@@ -22,7 +22,7 @@ CONFIG = {
     "path_with_seg": "results/SPAICE2026/test_32_4_seg",
     
     # Filename structure
-    "checkpoint_template": "epoch_{epoch}/chkpt.pt",
+    "checkpoint_template": "epoch_{epoch}/chkpt_nerf.pt",
     
     # Plotting configuration
     "plot_title": "Relative MAE on Depth",

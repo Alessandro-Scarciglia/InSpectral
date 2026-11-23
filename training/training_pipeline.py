@@ -392,7 +392,8 @@ def main(folder_name: str) -> None:
                       f"Avg. SSIM: {metrics_summary['ssim']:.3f} | Obj SSIM: {metrics_summary['ssim_obj']:.3f}\n"
                       f"Avg. MAE:  {metrics_summary['mae']:.3f} | Obj MAE:  {metrics_summary['mae_obj']:.3f}\n")
 
-    trainer_agent.scheduler.step()
+        # Step the learning-rate scheduler once per epoch
+        trainer_agent.scheduler.step()
 
 
 # =======================================================================================
