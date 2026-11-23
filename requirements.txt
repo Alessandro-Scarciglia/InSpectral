@@ -16,3 +16,6 @@ torchmetrics           # evaluate_ns.py
 
 # Optional: only for benchmarking against Nerfstudio (evaluate_ns.py)
 # nerfstudio
+
+# Geometry export (tools/export_geometry.py, mesh output)
+scikit-image

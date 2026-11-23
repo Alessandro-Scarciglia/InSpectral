@@ -31,6 +31,6 @@ class NeRFData(Dataset):
             self,
             index: int
     ) -> torch.Tensor:
-        # Estrae la riga intera (ora composta da 12 elementi: 6 raggi, 3 RGB, 1 maschera, 1 indice)
-        sample = self.df[index, :11]
-        return torch.tensor(sample, dtype=torch.float32)
+        # Whole row: 6 ray values + image channels (3 RGB, 1 IR or 4 RGB+IR) + 1 mask + 1 image index
+        sample = self.df[index]
+        return torch.tensor(sample, dtype=torch.float32)

@@ -6,6 +6,23 @@ and incorporate the tunable bimodal driving loss parameters.
 
 import torch
 
+from data.image_io import channels_for_mode
+
+# =======================================================================================
+# MODALITY FLAGS (the two switches to set for each experiment)
+# ---------------------------------------------------------------------------------------
+# IMAGE_MODE:       which images are rendered and supervised.
+#                   "rgb" (3 channels), "ir" (1 channel) or "rgb_ir" (both, 4 channels).
+# CORRUPTED_POSES:  True  -> camera poses are noisy: the dataset builder adds the configured
+#                            pose noise (nominal trajectories) and training learns per-image
+#                            pose corrections.
+#                   False -> poses are trusted: no added noise, no pose refinement.
+# Both are also read by data/generate_postprocessed_dataset.py, so the dataset and the
+# training run always agree. Rebuild the dataset after changing either of them.
+# =======================================================================================
+IMAGE_MODE = "rgb"
+CORRUPTED_POSES = True
+
 # =======================================================================================
 # DATASET PARAMETERS
 # ---------------------------------------------------------------------------------------
@@ -15,7 +32,15 @@ import torch
 dataset_parameters = {
     "data_path": "data/postprocessed_dataset/Landsat8_v4_4_nominal_images_mask_sam2_grounded_bi_arch_4_res512_min22.88_max40.72_rgb_radial0.030_rhor0.90_point0.200_rhop0.90.npy",
     "test_path": "/home/vision/Desktop/Datasets/Landsat8_v4/",
-    "mode": "rgb"
+    # Set through IMAGE_MODE at the top of this file
+    "mode": IMAGE_MODE,
+    # Distance in metres encoded as black (0) in the 8-bit depth labels (255 = camera).
+    # The predicted depth uses the same black point, converted to scene units with the
+    # dataset scale (1 / max camera distance), so prediction and label are comparable.
+    "depth_max_meters": 40.0,
+    # What the depth labels measure: "z" = depth along the camera's optical axis
+    # (planar Z), "ray" = distance from the camera centre along each pixel's ray.
+    "depth_type": "z",
 }
 
 # =======================================================================================
@@ -27,7 +52,7 @@ dataset_parameters = {
 # =======================================================================================
 cfg_parameters = {
     "resolution": 512,
-    "channels": 1 if dataset_parameters["mode"] == "ir" else 3,
+    "channels": channels_for_mode(dataset_parameters["mode"]),
     "device": "cuda"
 }
 
@@ -88,6 +113,25 @@ hash_parameters = {
 } 
 
 # =======================================================================================
+# OCCUPANCY GRID (EMPTY-SPACE SKIPPING)
+# ---------------------------------------------------------------------------------------
+# Tuning Guide:
+# - enable_occupancy_grid: Skip the MLPs for samples in voxels the grid marks as empty.
+#   Saves compute; off by default. Checkpoints trained with it on must be loaded with it on.
+# - grid_resolution: Voxels per side inside the hash bounding box (memory grows cubically).
+# - occupancy_threshold: Raw density below which a voxel counts as empty. Higher (↑) skips more.
+# - occupancy_warmup_steps: Training steps before the first grid update (skipping starts then).
+# - occupancy_update_interval: Steps between grid updates during training.
+# =======================================================================================
+occupancy_parameters = {
+    "enable_occupancy_grid": False,
+    "grid_resolution": 128,
+    "occupancy_threshold": 0.01,
+    "occupancy_warmup_steps": 500,
+    "occupancy_update_interval": 16,
+}
+
+# =======================================================================================
 # SPHERICAL HARMONICS EMBEDDER PARAMETERS
 # ---------------------------------------------------------------------------------------
 # Tuning Guide:
@@ -125,7 +169,7 @@ nerf_parameters = {
     "hidden_dim_color": 128,
     "input_ch": hash_parameters["n_levels"] * hash_parameters["n_features_per_level"],
     "input_ch_views": sh_parameters["degree"] ** 2,
-    "out_ch": 1 if dataset_parameters["mode"] == "ir" else 3,                        
+    "out_ch": cfg_parameters["channels"],                        
     "input_app_dim": app_parameters["embeddings_dim"]
 }
 
@@ -164,11 +208,16 @@ training_parameters = {
     "app_lr": 1e-4,
     "emb_lr": 5e-4,    
     # Pose refinement is opt-in; defaults preserve the original static-camera run.
-    "enable_camera_refinement": True,
+    # Set through CORRUPTED_POSES at the top of this file
+    "enable_camera_refinement": CORRUPTED_POSES,
     "camera_warmup_epochs": 1,
     "camera_update_interval": 2,
     "camera_only": True,
     "camera_pose_reg_weight": 1e-3,
+    # Trajectory smoothness prior on the corrected poses, aimed at white (frame-to-frame)
+    # pose noise. Needs the dataset pose sidecar and densely sampled frames. 0 disables it.
+    "camera_smoothness_weight": 0.0,
+    "camera_smoothness_window": 5,
     "mixed_precision": True,
     "distortion_loss_weight": 5e-4,
     "betas": (0.9, 0.999),
@@ -198,4 +247,4 @@ training_parameters = {
     "pretrained": False,
     "checkpoint_nerf": "/home/vision/Desktop/InSpectral/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_nerf.pt",
     "checkpoint_res": "/home/vision/Desktop/InSpectral/results/folder_2026-07-31_10-08-00_segm1e1/epoch_9/chkpt_res.pt"
-}
+}

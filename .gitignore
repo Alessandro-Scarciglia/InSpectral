@@ -168,6 +168,7 @@ inspectral_venv/
 /data/postprocessed_dataset/
 /results/
 /renders/
+/exports/
 /benchmarks/
 
 # Other generated folders

@@ -17,6 +17,7 @@ from configs.config_parameters import (
     dataset_parameters,
     hash_parameters,
     nerf_parameters,
+    occupancy_parameters,
     rays_parameters,
     sampler_parameters,
     sh_parameters,
@@ -24,6 +25,8 @@ from configs.config_parameters import (
 )
 from data.generate_postprocessed_dataset import calculate_intrinsic_matrix
 from data.rays_generator import RaysGeneratorSynth
+from data.image_io import split_channels
+from training.pose_utils import dataset_scale_factor
 from model.rendering import NeuralRenderer
 
 
@@ -114,6 +117,13 @@ def dataset_camera_poses(frames: list[dict], normalization_stride: int) -> list[
     if max_radius <= 0:
         raise ValueError("Cannot normalize a camera trajectory whose poses all lie at the origin.")
     scale = 1.0 / max_radius
+    # Prefer the scale the training dataset was built with (from the possibly noisy
+    # training poses); the clean-pose value above is only a fallback.
+    training_scale = dataset_scale_factor(dataset_parameters["data_path"])
+    if training_scale is not None:
+        scale = training_scale
+    else:
+        print("[WARNING] No 'max<distance>' tag in the dataset filename: normalising with the clean poses.")
     for pose in source_poses:
         pose[:3, 3] *= scale
     return source_poses
@@ -155,7 +165,8 @@ def infer_rays(
         encoded_dirs = encoded_dirs[:, None, :].expand(-1, n_samples, -1).reshape(-1, encoded_dirs.shape[-1])
         encoded_app = appearance_embedding.to(device).view(1, -1).expand(n_rays, -1)
         encoded_app = encoded_app[:, None, :].expand(-1, n_samples, -1).reshape(-1, encoded_app.shape[-1])
-        raw = model.nerf(torch.cat((encoded_points, encoded_dirs, encoded_app), dim=-1))
+        raw = model.query_nerf(torch.cat((encoded_points, encoded_dirs, encoded_app), dim=-1),
+                               model.occupancy_mask(samples.reshape(-1, 3)))
         raw = raw.reshape(n_rays, n_samples, -1)
         rgb, depth, _, _ = model.integrator(raw, zvals, ray_chunk[:, 3:6])
 
@@ -175,7 +186,8 @@ def infer_rays(
             encoded_dirs = encoded_dirs[:, None, :].expand(-1, n_samples, -1).reshape(-1, encoded_dirs.shape[-1])
             encoded_app = appearance_embedding.to(device).view(1, -1).expand(n_rays, -1)
             encoded_app = encoded_app[:, None, :].expand(-1, n_samples, -1).reshape(-1, encoded_app.shape[-1])
-            raw = model.nerf(torch.cat((encoded_points, encoded_dirs, encoded_app), dim=-1))
+            raw = model.query_nerf(torch.cat((encoded_points, encoded_dirs, encoded_app), dim=-1),
+                                   model.occupancy_mask(samples.reshape(-1, 3)))
             raw = raw.reshape(n_rays, n_samples, -1)
             rgb, depth, _, _ = model.integrator(raw, zvals, ray_chunk[:, 3:6])
 
@@ -199,10 +211,14 @@ def infer_rays(
 def save_render(rgb: torch.Tensor, depth: torch.Tensor, resolution: int, output: Path, name: str) -> None:
     rgb_image = rgb.numpy().reshape(resolution, resolution, cfg_parameters["channels"])
     depth_image = depth.numpy().reshape(resolution, resolution)
-    if cfg_parameters["channels"] == 1:
-        rgb_image = rgb_image[..., 0]
-    if not cv2.imwrite(str(output / f"{name}.png"), np.clip(rgb_image * 255.0, 0, 255).astype(np.uint8)):
-        raise OSError(f"Could not write RGB render to {output / f'{name}.png'}.")
+    image_uint8 = np.clip(rgb_image * 255.0, 0, 255).astype(np.uint8)
+    mode = dataset_parameters["mode"].lower()
+    for part_name, part in split_channels(image_uint8, mode).items():
+        # RGB (or IR-only) renders keep the plain name; in RGB+IR mode the IR channel gets "_ir".
+        suffix = "_ir" if (mode == "rgb_ir" and part_name == "ir") else ""
+        path = output / f"{name}{suffix}.png"
+        if not cv2.imwrite(str(path), part[..., 0] if part.shape[-1] == 1 else part):
+            raise OSError(f"Could not write render to {path}.")
     if not cv2.imwrite(
         str(output / f"{name}_depth.png"),
         np.clip(depth_image * 255.0, 0, 255).astype(np.uint8),
@@ -221,7 +237,9 @@ def save_3d_visualization(
 ) -> None:
     points_np = points.reshape(-1, 3).numpy()
     sigma_np = sigmas.reshape(-1).numpy()
+    # Plot colours come from the first three channels (BGR) or the single IR channel.
     colors_np = colors.reshape(-1, cfg_parameters["channels"]).numpy()
+    colors_np = colors_np[:, :3] if colors_np.shape[-1] >= 3 else colors_np
     visible = sigma_np >= sigma_threshold
     if not np.any(visible):
         raise ValueError(
@@ -317,6 +335,7 @@ def main() -> None:
         **sh_parameters,
         **app_parameters,
         **nerf_parameters,
+        **occupancy_parameters,
         device=str(device),
     ).to(device)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
@@ -331,6 +350,14 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     print(f"Saving inference outputs to {output}")
     dataset_poses = dataset_camera_poses(frames, int(config["normalization_stride"]))
+
+    # Depth black point = the label's far plane (depth_max_meters), in scene units
+    depth_scale = dataset_scale_factor(dataset_parameters["data_path"])
+    if depth_scale is None:
+        stride = int(config["normalization_stride"])
+        depth_scale = 1.0 / max(float(np.linalg.norm(np.asarray(frame["transform_matrix"])[:3, 3]))
+                                for frame in frames[::stride])
+    model.integrator.set_depth_range(far_depth=float(dataset_parameters["depth_max_meters"]) * depth_scale)
 
     if mode == "appearance":
         camera_index = int(config["camera_index"])
@@ -360,6 +387,7 @@ def main() -> None:
     with torch.inference_mode():
         for view_index, (pose, appearance_position) in enumerate(zip(poses, positions)):
             rays_image = raygen(pose)
+            model.integrator.set_camera_axis(pose if dataset_parameters["depth_type"] == "z" else None)
             include_samples = config["visualize_3d"] and view_index == visualize_3d_index
             appearance_embedding = get_appearance_embedding(model, float(appearance_position))
             rgb, depth, _, _, _ = infer_rays(

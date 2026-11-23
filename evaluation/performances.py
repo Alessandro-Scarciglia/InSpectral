@@ -17,6 +17,8 @@ from data.rays_generator import RaysGeneratorSynth
 from model.rendering import NeuralRenderer
 from data.generate_postprocessed_dataset import calculate_intrinsic_matrix
 from model.metrics import *
+from data.image_io import load_frame_image
+from training.pose_utils import dataset_scale_factor
 
 # Parameters
 from configs.config_parameters import *
@@ -72,6 +74,7 @@ def main():
         **sh_parameters,
         **app_parameters,
         **nerf_parameters,
+        **occupancy_parameters,
         device=device,
     )
 
@@ -187,6 +190,16 @@ def main():
         max_dist + 1e-10
     )
 
+    # Use the scale the training dataset was built with (computed from the possibly
+    # noisy training poses). Recomputing it from the clean poses above can be a few
+    # percent off when pose noise was added. The clean value is only a fallback.
+    training_scale = dataset_scale_factor(dataset_parameters["data_path"])
+    if training_scale is not None:
+        scale_factor = training_scale
+    else:
+        print("[WARNING] No 'max<distance>' tag in the dataset filename: "
+              "normalising with the clean poses instead.")
+
     print("\n" + "=" * 70)
     print("CAMERA NORMALIZATION")
     print("=" * 70)
@@ -215,6 +228,12 @@ def main():
         f"{max_dist * scale_factor:.8f}"
     )
     print("=" * 70 + "\n")
+
+    # Depth black point = the label's far plane (depth_max_meters), in scene units
+    depth_max_m = float(dataset_parameters["depth_max_meters"])
+    model.integrator.set_depth_range(far_depth=depth_max_m * scale_factor)
+    print(f"[INFO] Depth maps: white = camera, black = {depth_max_m:g} m "
+          f"({model.integrator.far_depth:.4f} scene units)\n")
 
 
     # ===================================================================================
@@ -320,6 +339,11 @@ def main():
                 test_c2w
             ).reshape(-1, 6)
 
+            # Z-depth labels: measure depth along this camera's viewing axis
+            model.integrator.set_camera_axis(
+                test_c2w if dataset_parameters["depth_type"] == "z" else None
+            )
+
 
             # ---------------------------------------------------------------------------
             # CREATE APPEARANCE TRACKING INDICES
@@ -341,27 +365,12 @@ def main():
             # LOAD TARGET RGB IMAGE
             # ---------------------------------------------------------------------------
 
-            target_image_path = os.path.join(
+            # Target image(s) for the configured mode (RGB, IR or RGB+IR)
+            target_image = load_frame_image(
                 dataset_parameters["test_path"],
-                test_sample["file_path"],
-            )
-
-            target_image = cv2.imread(
-                target_image_path
-            )
-
-            if target_image is None:
-                raise FileNotFoundError(
-                    f"Unable to load target image: "
-                    f"{target_image_path}"
-                )
-
-            target_image = cv2.resize(
-                target_image,
-                (
-                    cfg_parameters["resolution"],
-                    cfg_parameters["resolution"],
-                ),
+                test_sample,
+                dataset_parameters["mode"],
+                cfg_parameters["resolution"],
             )
 
             target_image = target_image / 255.0
@@ -655,7 +664,8 @@ def main():
 
     print(
         f"Mean Object MAE:  "
-        f"{np.mean(test_obj_mae_set):.4f}"
+        f"{np.mean(test_obj_mae_set):.4f} "
+        f"({np.mean(test_obj_mae_set) * depth_max_m:.3f} m)"
     )
 
     print(
@@ -671,4 +681,4 @@ def main():
 # =======================================================================================
 
 if __name__ == "__main__":
-    main()
+    main()

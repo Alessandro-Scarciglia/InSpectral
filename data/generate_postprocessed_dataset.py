@@ -32,6 +32,9 @@ import matplotlib.pyplot as plt
 
 from matplotlib.lines import Line2D
 
+from data.image_io import channels_for_mode, load_frame_image
+from configs.config_parameters import IMAGE_MODE, CORRUPTED_POSES
+
 
 # =======================================================================================
 # GLOBAL CONFIGURATION PARAMETERS
@@ -44,8 +47,8 @@ CONFIG = {
     "arch": "arch_4",
     "deg_res": 4,
 
-    # Image configuration: 'rgb' or 'ir'
-    "image_type": "rgb",
+    # Image configuration: 'rgb', 'ir' or 'rgb_ir' (RGB stacked with IR)
+    "image_type": IMAGE_MODE,  # set IMAGE_MODE in configs/config_parameters.py
 
     # Relative path to the segmentation masks
     "masked": "images/mask_sam2_grounded_bi",
@@ -57,28 +60,36 @@ CONFIG = {
     # POSITION PERTURBATION
     # -----------------------------------------------------------------------------------
 
-    "enable_trajectory_noise": True,
+    "enable_trajectory_noise": CORRUPTED_POSES,  # set CORRUPTED_POSES in configs/config_parameters.py
 
     # Relative standard deviation of radial position perturbations.
     # Example: 0.03 corresponds to 3%.
     "radial_noise_sigma": 0.03,
 
-    # Temporal correlation coefficient.
+    # Temporal correlation coefficient between consecutive *kept* frames.
     "radial_noise_rho": 0.90,
+
+    # Optional correlation length in degrees of orbit. When set, it replaces
+    # radial_noise_rho with rho = exp(-frame_spacing_deg / corr_deg), so the physical
+    # correlation stays the same whatever deg_res is. None keeps radial_noise_rho.
+    "radial_noise_corr_deg": None,
 
     # -----------------------------------------------------------------------------------
     # ATTITUDE / POINTING PERTURBATION
     # -----------------------------------------------------------------------------------
 
-    "enable_pointing_noise": True,
+    "enable_pointing_noise": CORRUPTED_POSES,
 
     # Standard deviation of the pointing error around each local camera axis.
     # The same standard deviation is applied independently to local X and Y.
     # Roll around local Z is not perturbed.
     "pointing_noise_sigma_deg": 0.20,
 
-    # Temporal correlation coefficient.
+    # Temporal correlation coefficient between consecutive *kept* frames.
     "pointing_noise_rho": 0.90,
+
+    # Optional correlation length in degrees of orbit (see radial_noise_corr_deg).
+    "pointing_noise_corr_deg": None,
 
     # -----------------------------------------------------------------------------------
     # RANDOMNESS AND VISUALIZATION
@@ -881,6 +892,34 @@ def main():
 
     # Independent random streams ensure that enabling/disabling one noise
     # source does not change the realization of the other noise source.
+    # -----------------------------------------------------------------------------------
+    # NOISE CORRELATION (PER FRAME vs PER DEGREE OF ORBIT)
+    # -----------------------------------------------------------------------------------
+
+    # Angular spacing between consecutive kept frames, seen from the target.
+    unit_centers = nominal_centers / np.linalg.norm(nominal_centers, axis=1, keepdims=True)
+    frame_spacing_deg = float(np.rad2deg(np.mean(np.arccos(np.clip(
+        np.sum(unit_centers[1:] * unit_centers[:-1], axis=1), -1.0, 1.0
+    ))))) if num_frames > 1 else 0.0
+
+    for prefix in ("radial_noise", "pointing_noise"):
+        corr_deg = CONFIG.get(f"{prefix}_corr_deg")
+
+        if corr_deg is not None:
+            if corr_deg <= 0:
+                raise ValueError(f"{prefix}_corr_deg must be positive.")
+            CONFIG[f"{prefix}_rho"] = float(np.exp(-frame_spacing_deg / corr_deg))
+
+        rho = CONFIG[f"{prefix}_rho"]
+        equivalent = (
+            f"{-frame_spacing_deg / np.log(rho):.1f} deg of orbit"
+            if 0.0 < rho < 1.0 else ("none" if rho == 0.0 else "infinite")
+        )
+        print(
+            f"[INFO] {prefix}: rho={rho:.3f} per kept frame "
+            f"(frame spacing {frame_spacing_deg:.2f} deg, correlation length {equivalent})"
+        )
+
     seed_sequence = np.random.SeedSequence(CONFIG["noise_seed"])
 
     position_seed, attitude_seed = seed_sequence.spawn(2)
@@ -1034,35 +1073,12 @@ def main():
     # -----------------------------------------------------------------------------------
 
     image_mode = CONFIG["image_type"].lower()
+    img_channels = channels_for_mode(image_mode)
 
-    if image_mode == "rgb":
-
-        path_key = "file_path"
-        img_channels = 3
-        read_flag = cv2.IMREAD_COLOR
-
-        print(
-            "[INFO] Configured mode: RGB "
-            "(3 channels, using 'file_path')"
-        )
-
-    elif image_mode == "ir":
-
-        path_key = "ir_path"
-        img_channels = 1
-        read_flag = cv2.IMREAD_GRAYSCALE
-
-        print(
-            "[INFO] Configured mode: IR / Grayscale "
-            "(1 channel, using 'ir_path')"
-        )
-
-    else:
-
-        raise ValueError(
-            f"Unknown image_type: '{CONFIG['image_type']}'. "
-            "Choose 'rgb' or 'ir'."
-        )
+    print(
+        f"[INFO] Configured mode: {image_mode.upper()} "
+        f"({img_channels} channel(s))"
+    )
 
     # -----------------------------------------------------------------------------------
     # MODEL AND FILENAME SETUP
@@ -1156,36 +1172,12 @@ def main():
         # LOAD IMAGE
         # -------------------------------------------------------------------------------
 
-        if path_key not in sample:
-
-            raise KeyError(
-                f"[ERROR] Key '{path_key}' not found in JSON "
-                f"for frame {idx}."
-            )
-
-        img_path = os.path.join(
-            CONFIG["data_path"],
-            sample[path_key]
+        img = load_frame_image(
+            dataset_root=CONFIG["data_path"],
+            frame=sample,
+            mode=image_mode,
+            resolution=resolution
         )
-
-        img = cv2.imread(
-            img_path,
-            read_flag
-        )
-
-        if img is None:
-
-            raise FileNotFoundError(
-                f"[ERROR] Could not load image: {img_path}"
-            )
-
-        img = cv2.resize(
-            img,
-            (resolution, resolution)
-        )
-
-        if img_channels == 1 and len(img.shape) == 2:
-            img = img[:, :, np.newaxis]
 
         # -------------------------------------------------------------------------------
         # LOAD SEGMENTATION MASK
@@ -1341,6 +1333,49 @@ def main():
         f"Final Shape: {dataset.shape}"
     )
 
+    # -----------------------------------------------------------------------------------
+    # CAMERA POSE SIDECAR
+    # -----------------------------------------------------------------------------------
+
+    # The training table only stores per-pixel rays, so the camera poses used to build it
+    # are saved next to it. Training uses them for the optional trajectory-smoothness
+    # prior and, when ground-truth poses are known, to report how far the learned pose
+    # corrections are from the truth.
+    ground_truth_poses = normalized_nominal_poses
+
+    if CONFIG["trajectory_type"] == "estimated":
+        ground_truth_poses = None
+        gt_json_path = os.path.join(CONFIG["data_path"], "transforms_train.json")
+
+        if os.path.exists(gt_json_path):
+            with open(gt_json_path, "r") as fopen:
+                gt_frames = json.load(fopen)["frames"][::CONFIG["deg_res"]]
+
+            if len(gt_frames) == num_frames:
+                ground_truth_poses = np.array(
+                    [frame["transform_matrix"] for frame in gt_frames],
+                    dtype=np.float64
+                )
+                ground_truth_poses[:, :3, 3] *= scale_factor
+
+    poses_dst = os.path.join(
+        CONFIG["data_dst_dir"],
+        f"{base_name}_poses.npz"
+    )
+
+    np.savez(
+        poses_dst,
+        input_poses=normalized_perturbed_poses.astype(np.float32),
+        ground_truth_poses=(
+            ground_truth_poses.astype(np.float32)
+            if ground_truth_poses is not None
+            else np.zeros((0, 4, 4), dtype=np.float32)
+        ),
+        scale_factor=np.float64(scale_factor)
+    )
+
+    print(f"Camera poses saved to: {poses_dst}")
+
 
 # =======================================================================================
 # SCRIPT ENTRY POINT
@@ -1350,4 +1385,4 @@ if __name__ == "__main__":
 
     from data.rays_generator import RaysGeneratorSynth
 
-    main()
+    main()

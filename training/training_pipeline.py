@@ -7,7 +7,9 @@ from data.dataset import NeRFData
 from training.trainer import Trainer
 from model.metrics import *
 from data.generate_postprocessed_dataset import calculate_intrinsic_matrix
+from data.image_io import channels_for_mode, load_frame_image, split_channels
 from model.residuals_embedder import ResEmbedder
+from training.pose_utils import load_pose_sidecar, corrected_poses, pose_errors
 
 # =======================================================================================
 # IMPORT GLOBAL HYPERPARAMETERS
@@ -49,17 +51,9 @@ def main(folder_name: str) -> None:
     img_mode = dataset_parameters.get("mode", "rgb").lower()
     img_channels = cfg_parameters["channels"]  # Strictly derived from global config
     
-    # Select path mapping keys and reading configurations based on the selected mode
-    if img_mode == "rgb":
-        path_key = "file_path"
-        read_flag = cv2.IMREAD_COLOR if img_channels == 3 else cv2.IMREAD_GRAYSCALE
-        print(f"[INFO] Configured Mode: RGB ({img_channels} channels, using '{path_key}')")
-    elif img_mode == "ir":
-        path_key = "ir_path"
-        read_flag = cv2.IMREAD_GRAYSCALE if img_channels == 1 else cv2.IMREAD_COLOR
-        print(f"[INFO] Configured Mode: IR ({img_channels} channels, using '{path_key}')")
-    else:
-        raise ValueError(f"Unknown mode: '{img_mode}'. Choose 'rgb' or 'ir'.")
+    if channels_for_mode(img_mode) != img_channels:
+        raise ValueError(f"cfg_parameters['channels'] ({img_channels}) does not match mode '{img_mode}'.")
+    print(f"[INFO] Configured Mode: {img_mode.upper()} ({img_channels} channels)")
 
     # -----------------------------------------------------------------------------------
     # DYNAMIC METADATA PATH SELECTION & ESTIMATION BOUNDS
@@ -104,9 +98,16 @@ def main(folder_name: str) -> None:
     renderer_kwargs.update(sh_parameters)
     renderer_kwargs.update(app_parameters)
     renderer_kwargs.update(nerf_parameters)
+    renderer_kwargs.update(occupancy_parameters)
     renderer_kwargs["device"] = cfg_parameters["device"]
 
     model = NeuralRenderer(**renderer_kwargs)
+
+    # Depth black point = the label's far plane (depth_max_meters), in scene units
+    depth_max_m = float(dataset_parameters["depth_max_meters"])
+    model.integrator.set_depth_range(far_depth=depth_max_m * scale_factor)
+    print(f"[GEOMETRY] Depth maps: white = camera, black = {depth_max_m:g} m "
+          f"({model.integrator.far_depth:.4f} scene units)")
     res_model = ResEmbedder(**res_model_parameters, device=cfg_parameters["device"])
 
     if training_parameters["pretrained"]:
@@ -133,6 +134,16 @@ def main(folder_name: str) -> None:
         pin_memory=True  
     )
 
+    # -----------------------------------------------------------------------------------
+    # CAMERA POSES OF THE TRAINING FRAMES (OPTIONAL SIDECAR)
+    # -----------------------------------------------------------------------------------
+    input_poses, ground_truth_poses = load_pose_sidecar(dataset_parameters["data_path"], device)
+    if input_poses is None:
+        print("[INFO] No camera-pose sidecar found: pose smoothness prior and pose-error "
+              "logging are disabled. Rebuild the dataset to enable them.")
+    elif training_parameters.get("camera_smoothness_weight", 0.0) and len(input_poses) > res_model_parameters["embeddings_num"]:
+        raise ValueError("res_model_parameters['embeddings_num'] is smaller than the number of training frames.")
+
     # Explicitly pass required parameters to satisfy the Trainer agent signature
     trainer_agent = Trainer(
         model=model, res_model=res_model,
@@ -155,7 +166,10 @@ def main(folder_name: str) -> None:
         camera_only=training_parameters["camera_only"],
         camera_pose_reg_weight=training_parameters["camera_pose_reg_weight"],
         mixed_precision=training_parameters["mixed_precision"],
-        distortion_loss_weight=training_parameters["distortion_loss_weight"]
+        distortion_loss_weight=training_parameters["distortion_loss_weight"],
+        camera_smoothness_weight=training_parameters.get("camera_smoothness_weight", 0.0),
+        camera_smoothness_window=training_parameters.get("camera_smoothness_window", 5),
+        camera_prior_poses=input_poses
     )
 
     max_steps = training_parameters["epochs"] * len(training_dataloader)
@@ -168,6 +182,7 @@ def main(folder_name: str) -> None:
     for epoch in range(training_parameters["epochs"]):
         
         model.train()
+        model.integrator.set_camera_axis(None)
         res_model.train()
         model.sampler.n_samples = sampler_parameters["n_ray_samples"]
         
@@ -210,8 +225,16 @@ def main(folder_name: str) -> None:
             writer.add_scalar("Train/Driving_Loss", loss_driving.item(), global_step)
             writer.add_scalar("Train/Appearance_Loss", loss_app.item(), global_step)
             writer.add_scalar("Train/Distortion_Loss", loss_distortion.item(), global_step)
+            if trainer_agent.camera_smoothness_w and input_poses is not None:
+                writer.add_scalar("Train/Pose_Smoothness_Loss", trainer_agent.last_pose_smoothness.item(), global_step)
             
             global_step += 1
+
+            # Refresh the occupancy grid (empty-space skipping), when enabled
+            if (occupancy_parameters["enable_occupancy_grid"]
+                    and global_step >= occupancy_parameters["occupancy_warmup_steps"]
+                    and global_step % occupancy_parameters["occupancy_update_interval"] == 0):
+                model.update_occupancy_grid()
                             
             if training_parameters["verbose"] and n_iter % 10 == 0:
                 print(
@@ -256,27 +279,23 @@ def main(folder_name: str) -> None:
                 test_c2w[:3, 3] *= scale_factor
 
                 test_rays = raygen(test_c2w).reshape(-1, 6)
+                model.integrator.set_camera_axis(test_c2w if dataset_parameters["depth_type"] == "z" else None)
                 
                 num_rays = test_rays.shape[0]
                 test_idx = torch.ones((num_rays, 1), dtype=torch.float32, device=device) * (m_iter // 4)
 
-                # Build dynamic evaluation paths using the selected dictionary keys
-                img_path = os.path.join(dataset_parameters["test_path"], test_sample[path_key])
                 depth_path = os.path.join(dataset_parameters["test_path"], test_sample["depth_path"])
                 mask_path = os.path.join(dataset_parameters["test_path"], test_sample["mask_path"])
 
-                if not os.path.exists(img_path):
-                    print(f"[ERROR] Image file not found at: {img_path}")
+                # Load the target image(s) for the configured mode (RGB, IR or RGB+IR)
+                try:
+                    target_image = load_frame_image(
+                        dataset_parameters["test_path"], test_sample, img_mode, cfg_parameters["resolution"]
+                    ) / 255.
+                except (FileNotFoundError, KeyError) as error:
+                    print(error)
                     continue
 
-                # Load target images using the appropriate OpenCV read flag
-                target_image = cv2.imread(img_path, read_flag)
-                target_image = cv2.resize(target_image, (cfg_parameters["resolution"], cfg_parameters["resolution"])) / 255. 
-                
-                # Restore the channel dimension if cv2.resize removed it for single-channel configurations
-                if len(target_image.shape) == 2 or target_image.shape[-1] != img_channels:
-                    target_image = target_image.reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], -1)[:, :, :img_channels]
-                    
                 target_image = torch.tensor(target_image, dtype=torch.float32, device=device).reshape(-1, img_channels)
 
                 # Load depth maps and evaluation masks
@@ -342,22 +361,27 @@ def main(folder_name: str) -> None:
                 frame = test_rgb.cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], img_channels)
                 depth = test_depth.cpu().numpy().reshape(cfg_parameters["resolution"], cfg_parameters["resolution"], 1)
 
-                rgb_to_save = (frame * 255).astype(np.uint8)
+                frame_to_save = (frame * 255).astype(np.uint8)
                 depth_to_save = (depth * 255).astype(np.uint8)
 
-                cv2.imwrite(os.path.join(rgb_dst, f"{m_iter:03}.png"), rgb_to_save)
                 cv2.imwrite(os.path.join(depth_dst, f"{m_iter:03}.png"), depth_to_save)
-                
-                # Adapt TensorBoard visualization layout depending on image color dimensionality
-                if img_channels == 3:
-                    tb_rgb = cv2.cvtColor(rgb_to_save, cv2.COLOR_BGR2RGB)
-                    tb_rgb = torch.tensor(tb_rgb, dtype=torch.uint8).permute(2, 0, 1)
-                else:
-                    tb_rgb = torch.tensor(rgb_to_save, dtype=torch.uint8).permute(2, 0, 1)
-                    
+
+                # Colour renders go to rgb/ (also for IR-only runs, as before); in RGB+IR
+                # mode the IR channel is saved separately in ir/
+                for part_name, part in split_channels(frame_to_save, img_mode).items():
+                    part_dst = rgb_dst if (part_name == "rgb" or img_mode == "ir") else os.path.join(epoch_folder, part_name)
+                    os.makedirs(part_dst, exist_ok=True)
+                    cv2.imwrite(os.path.join(part_dst, f"{m_iter:03}.png"), part)
+
+                    if part.shape[-1] == 3:
+                        tb_part = torch.tensor(cv2.cvtColor(part, cv2.COLOR_BGR2RGB), dtype=torch.uint8).permute(2, 0, 1)
+                    else:
+                        tb_part = torch.tensor(part, dtype=torch.uint8).permute(2, 0, 1)
+
+                    tag = "RGB" if (part_name == "rgb" or img_mode == "ir") else "IR"
+                    writer.add_image(f"Val_Images/{tag}_Sample_{m_iter:03d}", tb_part, epoch)
+
                 tb_depth = torch.tensor(depth_to_save, dtype=torch.uint8).permute(2, 0, 1)
-                
-                writer.add_image(f"Val_Images/RGB_Sample_{m_iter:03d}", tb_rgb, epoch)
                 writer.add_image(f"Val_Images/Depth_Sample_{m_iter:03d}", tb_depth, epoch)
 
             # Gather comprehensive performance summaries across all test viewpoints
@@ -372,10 +396,26 @@ def main(folder_name: str) -> None:
             writer.add_scalar("Val/Background_PSNR", metrics_summary["psnr_bkg"], epoch)
             writer.add_scalar("Val/Full_MAE", metrics_summary["mae"], epoch)
             writer.add_scalar("Val/Object_MAE", metrics_summary["mae_obj"], epoch)
+            writer.add_scalar("Val/Object_Depth_MAE_m", metrics_summary["mae_obj"] * depth_max_m, epoch)
             writer.add_scalar("Val/Background_MAE", metrics_summary["mae_bkg"], epoch)
             writer.add_scalar("Val/Full_SSIM", metrics_summary["ssim"], epoch)
             writer.add_scalar("Val/Object_SSIM", metrics_summary["ssim_obj"], epoch)
             writer.add_scalar("Val/Background_SSIM", metrics_summary["ssim_bkg"], epoch)
+
+            # Pose accuracy of the training cameras (only when ground-truth poses are known).
+            # Errors are measured after a similarity alignment, in normalised scene units
+            # and degrees; the "Input" curves are the uncorrected poses, for reference.
+            if ground_truth_poses is not None:
+                corrected_err = pose_errors(corrected_poses(res_model, input_poses), ground_truth_poses)
+                input_err = pose_errors(input_poses, ground_truth_poses)
+                metrics_summary.update(
+                    pose_t_err=corrected_err["translation"], pose_r_err=corrected_err["rotation_deg"],
+                    input_pose_t_err=input_err["translation"], input_pose_r_err=input_err["rotation_deg"],
+                )
+                writer.add_scalar("Pose/Translation_Error", corrected_err["translation"], epoch)
+                writer.add_scalar("Pose/Rotation_Error_deg", corrected_err["rotation_deg"], epoch)
+                writer.add_scalar("Pose/Input_Translation_Error", input_err["translation"], epoch)
+                writer.add_scalar("Pose/Input_Rotation_Error_deg", input_err["rotation_deg"], epoch)
 
             writer.flush()
 
@@ -390,7 +430,11 @@ def main(folder_name: str) -> None:
                 print(f"\nTest after epoch {epoch}:\n"
                       f"Avg. PSNR: {metrics_summary['psnr']:.3f} | Obj PSNR: {metrics_summary['psnr_obj']:.3f}\n"
                       f"Avg. SSIM: {metrics_summary['ssim']:.3f} | Obj SSIM: {metrics_summary['ssim_obj']:.3f}\n"
-                      f"Avg. MAE:  {metrics_summary['mae']:.3f} | Obj MAE:  {metrics_summary['mae_obj']:.3f}\n")
+                      f"Avg. MAE:  {metrics_summary['mae']:.3f} | Obj MAE:  {metrics_summary['mae_obj']:.3f} "
+                      f"({metrics_summary['mae_obj'] * depth_max_m:.2f} m)\n")
+                if "pose_t_err" in metrics_summary:
+                    print(f"Pose error: {metrics_summary['pose_t_err']:.4f} (input {metrics_summary['input_pose_t_err']:.4f}) | "
+                          f"{metrics_summary['pose_r_err']:.3f} deg (input {metrics_summary['input_pose_r_err']:.3f} deg)\n")
 
         # Step the learning-rate scheduler once per epoch
         trainer_agent.scheduler.step()
@@ -407,4 +451,4 @@ if __name__ == "__main__":
         f"folder_{timestamp}"
     )
     
-    main(output_directory)
+    main(output_directory)

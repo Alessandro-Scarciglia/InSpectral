@@ -46,7 +46,34 @@ class Integrator(nn.Module):
         self.device = torch.device(device)
         self.last_weights = None
         self.last_distortion_loss = torch.zeros((), device=self.device)
+        # Optional camera viewing axis (unit vector, world frame). When set, depth is
+        # reported as Z depth along this axis instead of distance along the ray.
+        self.camera_axis = None
+        self._check_range()
 
+    def set_camera_axis(self, c2w: torch.Tensor = None) -> None:
+        """Report Z depth for the camera c2w (looking along -z), or ray distance if None.
+
+        Call it before rendering each full image; with None (the default) the depth
+        is the distance along each ray.
+        """
+        if c2w is None:
+            self.camera_axis = None
+        else:
+            axis = -c2w[:3, 2].detach().float()
+            self.camera_axis = axis / axis.norm().clamp_min(1e-12)
+
+    def set_depth_range(self, far_depth: float, near_depth: float = 0.0) -> None:
+        """Set the depth mapped to 0 (black) and 1 (white), in normalised scene units.
+
+        Depth is not used by any loss, so this only changes the rendered depth maps and
+        the depth metrics, never the training itself.
+        """
+        self.near_depth = float(near_depth)
+        self.far_depth = float(far_depth)
+        self._check_range()
+
+    def _check_range(self) -> None:
         if self.far_depth <= self.near_depth:
             raise ValueError(
                 f"far_depth ({self.far_depth}) must be greater than "
@@ -239,6 +266,13 @@ class Integrator(nn.Module):
             accumulated_opacity + eps
         )
 
+        # zvals are distances along unit-length rays. For Z-depth labels, project the
+        # distance onto the camera's viewing axis: z = t * cos(angle to the axis).
+        if self.camera_axis is not None:
+            unit_dirs = rays_d / ray_norm.clamp_min(eps)
+            cos_axis = (unit_dirs * self.camera_axis.to(device)).sum(dim=-1)
+            depth = depth * cos_axis
+
         # ==========================================================================
         # 10. NORMALIZE DEPTH TO [0, 1]
         # ==========================================================================
@@ -340,4 +374,4 @@ class Integrator(nn.Module):
             depth_map,        # [N]
             sparsity_loss,    # scalar
             mask,             # [N, 1]
-        )
+        )

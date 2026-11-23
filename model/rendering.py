@@ -13,6 +13,7 @@ from model.sh_encoder import SHEncoder
 from model.appearance_embedder import AppearanceEmbedder
 from model.small_nerf import NeRFSmall
 from model.integrator import Integrator
+from model.occupancy_grid import OccupancyGrid
 
 # =======================================================================================
 # IMPORT GLOBAL HYPERPARAMETERS
@@ -39,6 +40,8 @@ class NeuralRenderer(nn.Module):
                  enable_hierarchical_sampling: bool = False,
                  n_importance_samples: int = 0,
                  importance_eps: float = 1e-5,
+                 enable_occupancy_grid: bool = False,
+                 occupancy_threshold: float = 0.01,
                  **kwargs):
         
         super(NeuralRenderer, self).__init__()
@@ -70,6 +73,43 @@ class NeuralRenderer(nn.Module):
                               input_ch_views=input_ch_views, out_ch=out_ch, device=device).to(device)
         
         self.integrator = Integrator(device=device)
+
+        # Optional occupancy grid for empty-space skipping. It is only created when
+        # enabled, so checkpoints trained without it load unchanged. Skipping starts
+        # once the trainer has updated the grid at least once (occupancy_active).
+        self.occupancy_threshold = float(occupancy_threshold)
+        self.occupancy_grid = (
+            OccupancyGrid(bbox=bbox, resolution=grid_resolution, device=device)
+            if enable_occupancy_grid else None
+        )
+        self.register_buffer("occupancy_active", torch.zeros((), dtype=torch.bool), persistent=enable_occupancy_grid)
+
+    @torch.no_grad()
+    def update_occupancy_grid(self, density_threshold: float = None) -> None:
+        """Re-evaluate the density on the grid and mark empty voxels (no-op when disabled)."""
+        if self.occupancy_grid is None:
+            return
+        threshold = self.occupancy_threshold if density_threshold is None else density_threshold
+        self.occupancy_grid.update_grid(self.embedder, self.nerf, density_threshold=threshold)
+        self.occupancy_active.fill_(True)
+
+    def occupancy_mask(self, flat_samples: torch.Tensor):
+        """Boolean mask of samples in occupied space, or None when skipping is off."""
+        if self.occupancy_grid is None or not bool(self.occupancy_active):
+            return None
+        return self.occupancy_grid.query_mask(flat_samples, threshold=self.occupancy_threshold)
+
+    def query_nerf(self, nerf_input: torch.Tensor, occupied: torch.Tensor = None) -> torch.Tensor:
+        """
+        Run the NeRF MLPs, only on occupied samples when a mask is given. Skipped samples
+        get zero colour and zero density, so they contribute nothing to the integral.
+        """
+        if occupied is None:
+            return self.nerf(nerf_input)
+        output = self.nerf(nerf_input[occupied])
+        full = output.new_zeros((nerf_input.shape[0], output.shape[-1]))
+        full[occupied] = output
+        return full
 
     def forward(
             self,
@@ -124,7 +164,7 @@ class NeuralRenderer(nn.Module):
         # 3. NETWORK FORWARDPASS
         # -------------------------------------------------------------------------------
         nerf_input = torch.cat([enc_points, enc_dirs_stretched, app_emb_stretched], dim=-1)
-        output_flat = self.nerf(nerf_input)
+        output_flat = self.query_nerf(nerf_input, self.occupancy_mask(flat_samples))
 
         # Unflatten network outputs using the dynamic channel count
         nerf_output = output_flat.reshape(n_rays, n_samples, total_network_out_ch)
@@ -145,8 +185,9 @@ class NeuralRenderer(nn.Module):
             enc_points = enc_points * keep_mask.unsqueeze(-1).float()
             enc_dirs_stretched = enc_dirs.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, enc_dirs.shape[-1])
             app_emb_stretched = app_emb.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, app_emb.shape[-1])
-            output_flat = self.nerf(torch.cat([enc_points, enc_dirs_stretched, app_emb_stretched], dim=-1))
+            output_flat = self.query_nerf(torch.cat([enc_points, enc_dirs_stretched, app_emb_stretched], dim=-1),
+                                          self.occupancy_mask(flat_samples))
             nerf_output = output_flat.reshape(n_rays, n_samples, total_network_out_ch)
             chs_map, depth_map, sparsity_loss, mask = self.integrator(nerf_output, zvals, rays[..., 3:6])
         
-        return chs_map, depth_map, sparsity_loss, mask
+        return chs_map, depth_map, sparsity_loss, mask

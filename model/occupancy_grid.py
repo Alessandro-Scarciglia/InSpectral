@@ -65,11 +65,14 @@ class OccupancyGrid(nn.Module):
             sigmas.append(outputs[..., -1])
             
         sigmas = torch.cat(sigmas, dim=0).reshape(self.resolution, self.resolution, self.resolution)
-        current_status = (sigmas > density_threshold).float()
+        # Never use a threshold above the mean density, so a young, still faint model does
+        # not get its whole volume marked as empty (as in Instant-NGP).
+        effective_threshold = min(float(density_threshold), float(sigmas.clamp_min(0).mean()))
+        current_status = (sigmas > effective_threshold).float()
         
         # Aggiornamento asimmetrico pulito: se attivo applica l'EMA, altrimenti decade del 60%
         ema_grid = self.grid * self.ema_decay + current_status * (1.0 - self.ema_decay)
         self.grid = torch.where(current_status > 0, ema_grid, self.grid * 0.4)
         
         # Ripristino stati iniziali
-        nerf_model.train(training_states[0]); embedder.train(training_states[1])
+        nerf_model.train(training_states[0]); embedder.train(training_states[1])

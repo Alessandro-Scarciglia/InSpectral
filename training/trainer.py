@@ -11,6 +11,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 # Import custom modules
 from model.losses import total_variation_loss, TunableBimodalDrivingLoss, BCEDiceLoss
 from model.metrics import *
+from training.pose_utils import corrected_poses, trajectory_smoothness_loss
 
 
 class Trainer:
@@ -41,7 +42,10 @@ class Trainer:
             camera_only: bool = False,
             camera_pose_reg_weight: float = 0.0,
             mixed_precision: bool = False,
-            distortion_loss_weight: float = 0.0
+            distortion_loss_weight: float = 0.0,
+            camera_smoothness_weight: float = 0.0,
+            camera_smoothness_window: int = 5,
+            camera_prior_poses: torch.Tensor = None
     ):
         """
         Initializes the optimization agent, groups architectural parameters, 
@@ -71,6 +75,12 @@ class Trainer:
         self.camera_only = bool(camera_only)
         self.camera_pose_reg_weight = max(0.0, float(camera_pose_reg_weight))
         self.distortion_loss_w = max(0.0, float(distortion_loss_weight))
+        # Optional trajectory-smoothness prior on the corrected camera poses (needs the
+        # input poses from the dataset's pose sidecar). 0 disables it.
+        self.camera_smoothness_w = max(0.0, float(camera_smoothness_weight))
+        self.camera_prior_poses = camera_prior_poses
+        self.camera_smoothness_window = int(camera_smoothness_window)
+        self.last_pose_smoothness = torch.zeros(())
         self.mixed_precision = bool(mixed_precision and torch.cuda.is_available())
         self.scaler = torch.amp.GradScaler(enabled=self.mixed_precision)
         
@@ -158,7 +168,7 @@ class Trainer:
         Executes a single optimization iteration over a pixel/ray training batch.
         """
         # labels contiene esattamente 3 canali (RGB) passati dallo script principale
-        labels_rgb = labels[:, :3].to(self.model.device)   
+        labels_rgb = labels.to(self.model.device)  # all image channels (3, 1 or 4)   
         labels_mask = driving_mask.to(self.model.device)
 
         pose_active = self._set_optimization_phase(epoch, n_iter)
@@ -195,6 +205,15 @@ class Trainer:
             if pose_active and self.camera_pose_reg_weight:
                 pose_reg = self.res_model.embeddings.weight.square().mean()
                 loss = loss + self.camera_pose_reg_weight * pose_reg
+            if pose_active and self.camera_smoothness_w and self.camera_prior_poses is not None:
+                # Pose geometry is evaluated in FP32 even under mixed precision.
+                with torch.autocast(device_type="cuda", enabled=False):
+                    pose_smoothness = trajectory_smoothness_loss(
+                        corrected_poses(self.res_model, self.camera_prior_poses),
+                        window=self.camera_smoothness_window,
+                    )
+                loss = loss + self.camera_smoothness_w * pose_smoothness
+                self.last_pose_smoothness = pose_smoothness.detach()
         
         # --- TOTAL VARIATION LOSS (HYBRID / SHADOW METRIC) ---
         if epoch <= self.stop_tv_epoch:
@@ -241,4 +260,4 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app_sim, loss_distortion
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app_sim, loss_distortion
