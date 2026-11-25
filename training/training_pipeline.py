@@ -196,12 +196,11 @@ def main(folder_name: str) -> None:
         for n_iter, ray_batch in enumerate(training_dataloader):
             ray_batch = ray_batch.to(device, non_blocking=True)        
 
-            # Apply camera pose optimization via residual deformation if enabled for this epoch
-            camera_enabled = (
-                training_parameters["enable_camera_refinement"]
-                and epoch >= training_parameters["camera_warmup_epochs"]
-                and n_iter % max(1, training_parameters["camera_update_interval"]) == 0
-            )
+            # Apply camera pose optimization via residual deformation if enabled for this batch.
+            # The optimization phase (which parameters require grad) must be set before
+            # res_model runs: the previous batch may have left the pose table frozen, and a
+            # residual computed while frozen carries no gradient, so the poses never move.
+            camera_enabled = trainer_agent.set_optimization_phase(epoch, n_iter)
             if camera_enabled:
                 d_rays_o, d_rays_rot = res_model(ray_batch[:, -1])
                 orig = ray_batch[:, :3]      

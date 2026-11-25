@@ -129,11 +129,15 @@ class Trainer:
             gamma=decay_rate,
         )
 
-    def _set_optimization_phase(self, epoch: int, n_iter: int) -> bool:
+    def set_optimization_phase(self, epoch: int, n_iter: int) -> bool:
         """Freeze groups for alternating camera-only updates.
 
         Returns whether this batch updates the pose table.  Refinement is opt-in
         and the default path leaves all parameters trainable as before.
+
+        Must be called BEFORE the pose residuals are applied to the rays: requires_grad
+        is read when res_model runs its forward pass, so enabling it afterwards leaves
+        the corrected rays without a graph back to the pose table.
         """
         active = (self.enable_camera_refinement and
                   epoch >= self.camera_warmup_epochs and
@@ -171,7 +175,7 @@ class Trainer:
         labels_rgb = labels.to(self.model.device)  # all image channels (3, 1 or 4)   
         labels_mask = driving_mask.to(self.model.device)
 
-        pose_active = self._set_optimization_phase(epoch, n_iter)
+        pose_active = self.set_optimization_phase(epoch, n_iter)  # idempotent
         self.optimizer.zero_grad()
         amp_dtype = torch.float16
         with torch.autocast(
