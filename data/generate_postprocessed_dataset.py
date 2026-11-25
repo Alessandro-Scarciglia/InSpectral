@@ -32,6 +32,13 @@ import matplotlib.pyplot as plt
 
 from matplotlib.lines import Line2D
 
+# Allow running this file directly (`python data/generate_postprocessed_dataset.py`) as well as with
+# `python -m data.generate_postprocessed_dataset`: put the repository root on the import path.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from data.image_io import channels_for_mode, load_frame_image
 from configs.config_parameters import IMAGE_MODE, CORRUPTED_POSES
 

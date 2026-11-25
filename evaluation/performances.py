@@ -12,6 +12,13 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from time import sleep
 
+# Allow running this file directly (`python evaluation/performances.py`) as well as with
+# `python -m evaluation.performances`: put the repository root on the import path.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 # Import custom modules
 from data.rays_generator import RaysGeneratorSynth
 from model.rendering import NeuralRenderer

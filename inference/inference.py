@@ -11,6 +11,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+# Allow running this file directly (`python inference/inference.py`) as well as with
+# `python -m inference.inference`: put the repository root on the import path.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from configs.config_parameters import (
     app_parameters,
     cfg_parameters,
