@@ -1,3 +1,10 @@
+# Allow running this file directly (`python training/training_pipeline.py`) as well as with
+# `python -m training.training_pipeline`: put the repository root on the import path.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 # =======================================================================================
 # IMPORT CUSTOM MODULES
 # =======================================================================================

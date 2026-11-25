@@ -198,6 +198,17 @@ pip install -r requirements.txt
 
 `requirements.txt` lists the core dependencies plus the ones used by the evaluation and export scripts (`pandas`, `tensorboard`, `torchmetrics`, `scikit-image`). `nerfstudio` is only needed for `evaluation/evaluate_ns.py` and is commented out.
 
+### How to run the scripts
+
+Every script imports the project's own packages (`configs`, `data`, `model`, `training`, `evaluation`, `inference`, `tools`) by their full name, so run it **from the repository root**. Both forms work:
+
+```bash
+python -m training.training_pipeline          # recommended
+python training/training_pipeline.py          # also works
+```
+
+The same goes for the other entry points, e.g. `python -m data.generate_postprocessed_dataset` or `python data/generate_postprocessed_dataset.py`. Running from the root also keeps relative paths in the configs (such as `data/postprocessed_dataset/` and `results/`) pointing at the right place. Avoid `cd`-ing into a package folder and running `python training_pipeline.py` from there.
+
 ### 2. Prepare the source dataset
 
 InSpectral expects a NeRF/Blender-style synthetic orbit:

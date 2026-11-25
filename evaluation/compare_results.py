@@ -63,6 +63,13 @@ from tensorboard.backend.event_processing.event_accumulator import (
     EventAccumulator,
 )
 
+# Allow running this file directly (`python evaluation/compare_results.py`) as well as with
+# `python -m evaluation.compare_results`: put the repository root on the import path.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from evaluation.comparison_cases import COMPARISON_CASES
 
 
