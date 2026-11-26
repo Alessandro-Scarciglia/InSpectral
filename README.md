@@ -88,11 +88,11 @@ flowchart LR
 | **Integrator** | Alpha compositing in FP32. Returns the colour map, a **normalised inverse depth** (near → 1, far → 0, background forced to 0, matching the ground-truth depth PNGs), the **accumulated opacity** used as the object mask, an **entropy sparsity** term, and a mip-NeRF-360-style **distortion** term. | `model/integrator.py` |
 | **NeuralRenderer** | Wraps sampler, encoders, NeRF and integrator into one `nn.Module`. | `model/rendering.py` |
 | **Occupancy grid** *(opt-in)* | A coarse voxel grid of where the density is non-negligible, refreshed during training. Samples in empty voxels skip the MLPs entirely (zero colour and density), which saves compute on the mostly empty space around an RSO. | `model/occupancy_grid.py` |
-| **Pose residuals** | `ResEmbedder` stores a 6-D correction per image (3 translation + 3 rotation as an axis-angle vector), initialised to zero, clamped to ±5 and scaled by `lin_range` (translation) and `ang_range` (rotation). It is turned into Δt and ΔR (Rodrigues) and applied to the ray origins and directions before rendering. | `model/residuals_embedder.py` |
+| **Pose residuals** | `ResEmbedder` stores a 6-D correction per image (3 translation + 3 rotation as an axis-angle vector), initialised to zero, clamped to ±1 and scaled by `lin_range` (translation) and `ang_range` (rotation), so the ranges are the largest correction per axis. Translation and rotation are two separate tables so they can have their own learning rate. It is turned into Δt and ΔR (Rodrigues) and applied to the ray origins and directions before rendering. | `model/residuals_embedder.py` |
 
 ### Training objective
 
-`training/trainer.py` optimises everything with **AdamW** using four parameter groups with separate learning rates (NeRF MLPs `lr`, hash grid `emb_lr`, appearance table `app_lr`, pose table `res_lr`) and a **StepLR** scheduler. Mixed precision (FP16 autocast + GradScaler) is available on CUDA.
+`training/trainer.py` optimises everything with **AdamW** using four parameter groups with separate learning rates (NeRF MLPs `lr`, hash grid `emb_lr`, appearance table `app_lr`, pose translation `res_lr`, pose rotation `res_lr_rot`; no weight decay on the pose tables) and a **StepLR** scheduler. Mixed precision (FP16 autocast + GradScaler) is available on CUDA.
 
 | Term | Definition | Weight key | Active |
 |---|---|---|---|
@@ -102,7 +102,7 @@ flowchart LR
 | Distortion | mip-NeRF 360 distortion loss on the sample weights | `distortion_loss_weight` | always (if > 0) |
 | Total variation | L1 TV on a random cube of every hash-grid level | `tv_loss_weight` | until `stop_tv_epoch` |
 | Segmentation | 0.5 · BCE + 0.5 · Dice between the accumulated opacity and the (pseudo-)mask | `bce_dice_loss_weight` | from `start_seg_epoch` |
-| Pose regularisation | Mean squared pose-residual embedding | `camera_pose_reg_weight` | only on pose-update steps |
+| Pose regularisation | Mean squared pose-residual embedding (translation / rotation) | `camera_pose_reg_weight` / `camera_rot_reg_weight` (0 by default: a rotation prior stalls rotation) | only on pose-update steps |
 | Trajectory smoothness *(opt-in)* | High-frequency energy of the corrected trajectory: each pose minus a local quadratic (Savitzky-Golay) fit through its `camera_smoothness_window` neighbours | `camera_smoothness_weight` | only on pose-update steps |
 
 Terms outside their active window are still computed without gradient so they keep appearing in TensorBoard.
@@ -373,8 +373,8 @@ Two flags at the top of the file select the experiment's modality. Both the data
 | `sh_parameters` | `degree` (4) |
 | `app_parameters` | `embeddings_num` (≥ training frames), `embeddings_dim` (16) |
 | `nerf_parameters` | `n_layers`, `hidden_dim`, `geo_feat_dim`, `n_layers_color`, `hidden_dim_color`; input/output sizes are derived |
-| `res_model_parameters` | `embeddings_num`, `lin_range` (translation step per unit of embedding, normalised units), `ang_range` (rotation step per unit of embedding, rad); the embedding is clamped to ±5, so the largest correction is 5 × the range |
-| `training_parameters` | batch & schedule: `training_batch` (4096 rays), `epochs`, `lr`, `emb_lr`, `app_lr`, `res_lr`, `betas`, `eps`, `decay_rate`, `decay_steps`, `mixed_precision` · loss weights: see [Training objective](#training-objective) · loss windows: `stop_tv_epoch`, `start_seg_epoch` · camera refinement: `enable_camera_refinement` (set by `CORRUPTED_POSES`), `camera_warmup_epochs`, `camera_update_interval`, `camera_only`, `camera_smoothness_weight` (0 = off), `camera_smoothness_window` · resuming: `pretrained`, `checkpoint_nerf`, `checkpoint_res` |
+| `res_model_parameters` | `embeddings_num`, `lin_range` (largest translation correction per axis, normalised units), `ang_range` (largest rotation correction per axis, rad); the embedding is clamped to ±1 |
+| `training_parameters` | batch & schedule: `training_batch` (4096 rays), `epochs`, `lr`, `emb_lr`, `app_lr`, `res_lr`, `res_lr_rot`, `betas`, `eps`, `decay_rate`, `decay_steps`, `mixed_precision` · loss weights: see [Training objective](#training-objective) · loss windows: `stop_tv_epoch`, `start_seg_epoch` · camera refinement: `enable_camera_refinement` (set by `CORRUPTED_POSES`), `camera_warmup_epochs`, `camera_update_interval`, `camera_only`, `camera_pose_reg_weight`, `camera_rot_reg_weight`, `camera_smoothness_weight` (0 = off), `camera_smoothness_window` · resuming: `pretrained`, `checkpoint_nerf`, `checkpoint_res` |
 
 > A few keys are kept for experiments but are **not read by the current code**: `emb_norm_loss_weight`, `driving_loss_w_bg`, `driving_loss_w_fg`, `driving_loss_dice_weight`, and `driving_loss_softness` / `driving_loss_gamma` (passed to the trainer but only used by the alternative `TunableBimodalDrivingLoss`, which is commented out in favour of BCE-Dice).
 

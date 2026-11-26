@@ -176,7 +176,9 @@ def main(folder_name: str) -> None:
         distortion_loss_weight=training_parameters["distortion_loss_weight"],
         camera_smoothness_weight=training_parameters.get("camera_smoothness_weight", 0.0),
         camera_smoothness_window=training_parameters.get("camera_smoothness_window", 5),
-        camera_prior_poses=input_poses
+        camera_prior_poses=input_poses,
+        lr_res_rot=training_parameters.get("res_lr_rot"),
+        camera_rot_reg_weight=training_parameters.get("camera_rot_reg_weight")
     )
 
     max_steps = training_parameters["epochs"] * len(training_dataloader)

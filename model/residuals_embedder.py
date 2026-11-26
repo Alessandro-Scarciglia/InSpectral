@@ -27,24 +27,38 @@ class ResEmbedder(nn.Module):
         """
         super().__init__()
 
+        if embeddings_dim != 6:
+            raise ValueError("ResEmbedder stores 3 translation + 3 rotation values per image (embeddings_dim=6).")
+
         # Attributes
+        # Each raw value is clamped to [-1, 1] and multiplied by its range, so lin_range and
+        # ang_range are the largest correction allowed per axis (scene units / radians).
         self.lin_range = lin_range
         self.ang_range = ang_range
-        self.embeddings = nn.Embedding(
-            num_embeddings=embeddings_num,
-            embedding_dim=embeddings_dim,
-            device=device
-        )
-        
+
+        # Translation and rotation live in two tables so the optimizer can give them
+        # different learning rates (see "res_lr_rot" in configs/config_parameters.py).
+        self.trans_embeddings = nn.Embedding(embeddings_num, 3, device=device)
+        self.rot_embeddings = nn.Embedding(embeddings_num, 3, device=device)
+
         # Inizializziamo esplicitamente a zero così i residui partono da una correzione nulla
-        nn.init.zeros_(self.embeddings.weight)
+        nn.init.zeros_(self.trans_embeddings.weight)
+        nn.init.zeros_(self.rot_embeddings.weight)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        # Checkpoints written before the split hold one [N, 6] table ("embeddings.weight").
+        legacy = state_dict.pop(prefix + "embeddings.weight", None)
+        if legacy is not None:
+            state_dict[prefix + "trans_embeddings.weight"] = legacy[:, :3].clone()
+            state_dict[prefix + "rot_embeddings.weight"] = legacy[:, 3:].clone()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def forward(
             self,
             idx: int
     ) -> torch.Tensor:
         """
-        It takes an integer as input (i.e. the image index) and returns the corresponding embedding.
+        It takes an integer as input (i.e. the image index) and returns the corresponding pose residual.
 
         Parameters:
         ----------
@@ -53,19 +67,19 @@ class ResEmbedder(nn.Module):
 
         Returns:
         -------
-        embedding: torch.Tensor[float]
-            it is the embedding corresponding to the query index.
+        delta_pos: torch.Tensor[float]
+            translation residual of the camera centre, [B, 3].
+        dR: torch.Tensor[float]
+            rotation residual applied to the ray directions, [B, 3, 3].
         """
 
-        # Retrieve embedding vector
+        # Retrieve embedding vectors
         idx = idx.to(torch.int32)
-        
-        # MODIFICA: Eliminata la funzione Tanh. L'embedder ora è libero e lineare.
-        # Inserito un clamp di sicurezza a +/- 5 per evitare esplosioni incontrollate, mantenendo la linearità.
-        embedding = torch.clamp(self.embeddings(idx), -5.0, 5.0).reshape(-1, 6)
-        
-        delta_pos = embedding[..., :3] * self.lin_range
-        delta_theta = embedding[..., 3:] * self.ang_range
+
+        # Linear parameterisation (no tanh). The clamp to [-1, 1] makes lin_range / ang_range
+        # the maximum correction per axis.
+        delta_pos = torch.clamp(self.trans_embeddings(idx), -1.0, 1.0).reshape(-1, 3) * self.lin_range
+        delta_theta = torch.clamp(self.rot_embeddings(idx), -1.0, 1.0).reshape(-1, 3) * self.ang_range
 
         # MODIFICA DI STABILITÀ (Evita i NAN causati dalla derivata di sqrt(0) all'inizio)
         # Sostituiamo torch.norm diretto con un calcolo protetto da un epsilon
