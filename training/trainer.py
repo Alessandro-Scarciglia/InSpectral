@@ -45,7 +45,9 @@ class Trainer:
             distortion_loss_weight: float = 0.0,
             camera_smoothness_weight: float = 0.0,
             camera_smoothness_window: int = 5,
-            camera_prior_poses: torch.Tensor = None
+            camera_prior_poses: torch.Tensor = None,
+            lr_res_rot: float = None,
+            camera_rot_reg_weight: float = None
     ):
         """
         Initializes the optimization agent, groups architectural parameters, 
@@ -56,6 +58,10 @@ class Trainer:
         self.res_model = res_model
         self.lr = lr
         self.res_lr = lr_res
+        # Rotation residuals get their own learning rate: one raw unit of rotation moves the
+        # image far less than one raw unit of translation, so a shared rate leaves rotation
+        # almost frozen while translation absorbs the misalignment. None = same as res_lr.
+        self.res_lr_rot = lr_res if lr_res_rot is None else lr_res_rot
         self.emb_lr = lr_emb
         self.app_lr = lr_app
         self.betas = betas
@@ -74,6 +80,9 @@ class Trainer:
         self.camera_update_interval = max(1, int(camera_update_interval))
         self.camera_only = bool(camera_only)
         self.camera_pose_reg_weight = max(0.0, float(camera_pose_reg_weight))
+        # Prior pulling the rotation residuals to zero. None = same weight as translation.
+        self.camera_rot_reg_weight = (self.camera_pose_reg_weight if camera_rot_reg_weight is None
+                                      else max(0.0, float(camera_rot_reg_weight)))
         self.distortion_loss_w = max(0.0, float(distortion_loss_weight))
         # Optional trajectory-smoothness prior on the corrected camera poses (needs the
         # input poses from the dataset's pose sidecar). 0 disables it.
@@ -116,7 +125,11 @@ class Trainer:
                 {'params': filter(lambda p: p.requires_grad, self.model.nerf.parameters()), 'lr': self.lr},
                 {'params': filter(lambda p: p.requires_grad, self.model.embedder.parameters()), 'lr': self.emb_lr},
                 {'params': filter(lambda p: p.requires_grad, self.model.app_embedder.parameters()), 'lr': self.app_lr},
-                {'params': filter(lambda p: p.requires_grad, self.res_model.parameters()), 'lr': self.res_lr}
+                # No weight decay on the pose tables: AdamW's default decay would act as a
+                # hidden prior pulling every correction back to zero. The explicit pose
+                # regularisers below are the only priors on the poses.
+                {'params': [self.res_model.trans_embeddings.weight], 'lr': self.res_lr, 'weight_decay': 0.0},
+                {'params': [self.res_model.rot_embeddings.weight], 'lr': self.res_lr_rot, 'weight_decay': 0.0}
             ],
             betas=self.betas,
             eps=self.eps
@@ -207,8 +220,9 @@ class Trainer:
             if self.distortion_loss_w:
                 loss = loss + self.distortion_loss_w * loss_distortion
             if pose_active and self.camera_pose_reg_weight:
-                pose_reg = self.res_model.embeddings.weight.square().mean()
-                loss = loss + self.camera_pose_reg_weight * pose_reg
+                loss = loss + self.camera_pose_reg_weight * self.res_model.trans_embeddings.weight.square().mean()
+            if pose_active and self.camera_rot_reg_weight:
+                loss = loss + self.camera_rot_reg_weight * self.res_model.rot_embeddings.weight.square().mean()
             if pose_active and self.camera_smoothness_w and self.camera_prior_poses is not None:
                 # Pose geometry is evaluated in FP32 even under mixed precision.
                 with torch.autocast(device_type="cuda", enabled=False):
@@ -264,4 +278,4 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
 
-        return loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app_sim, loss_distortion
+        return loss, loss_photom, loss_tv, loss_sparsity, loss_driving, loss_app_sim, loss_distortion

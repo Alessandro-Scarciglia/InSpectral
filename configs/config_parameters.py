@@ -177,14 +177,16 @@ nerf_parameters = {
 # LEARNABLE CAMERA POSE RESIDUALS CONFIGURATION
 # ---------------------------------------------------------------------------------------
 # Tuning Guide:
-# - lin_range / ang_range: Limits bounds for camera optimization (BARF setup). 
+# - lin_range / ang_range: Largest correction per axis (scene units / radians): the raw residuals
+#   are clamped to [-1, 1] and multiplied by these. Keep them a few times above the expected pose
+#   noise (radial 3% of a <= 1.0 distance; pointing 0.2 deg per axis).
 #   Too high (↑) destabilizes trajectories; too low (↓) prevents correcting large camera registration errors.
 # =======================================================================================
 res_model_parameters = {
     "embeddings_num": 90,
     "embeddings_dim": 6,
     "lin_range": 0.1 / SCALE,            
-    "ang_range": 0.5 * (torch.pi / 180)
+    "ang_range": 1.0 * (torch.pi / 180)
 }
 
 # =======================================================================================
@@ -205,6 +207,10 @@ training_parameters = {
     "epochs": 15,
     "lr": 1e-4,
     "res_lr": 2e-3,
+    # Learning rate of the rotation residuals. A rotation of one raw unit (ang_range) moves the
+    # image about as much as a lateral shift of ang_range * distance, which is ~10x less than one
+    # raw unit of translation (lin_range), so rotation needs a ~10x higher rate to keep up.
+    "res_lr_rot": 2e-2,
     "app_lr": 1e-4,
     "emb_lr": 5e-4,    
     # Pose refinement is opt-in; defaults preserve the original static-camera run.
@@ -214,6 +220,10 @@ training_parameters = {
     "camera_update_interval": 2,
     "camera_only": True,
     "camera_pose_reg_weight": 1e-3,
+    # Zero-prior on the rotation residuals (None = same as camera_pose_reg_weight). Keep it at 0:
+    # the photometric gradient on rotation is ~25x weaker than on translation, so even 1e-3 sets
+    # an equilibrium near the input attitude and rotation stops improving (any learning rate).
+    "camera_rot_reg_weight": 0.0,
     # Trajectory smoothness prior on the corrected poses, aimed at white (frame-to-frame)
     # pose noise. Needs the dataset pose sidecar and densely sampled frames. 0 disables it.
     "camera_smoothness_weight": 0.0,
